@@ -1,0 +1,2 @@
+"""CT Search application package."""
+
