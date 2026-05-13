@@ -22,9 +22,6 @@ dev = [
     "ruff>=0.6.4",
 ]
 
-[project.scripts]
-prospect-engine = "ct_search.prospecting_cli:main"
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
