@@ -4,7 +4,7 @@ Guidance for future coding agents working in this repository.
 
 ## Project Shape
 
-CT Search is a split application:
+Edna Search is a split application:
 
 - `src/ct_search/`: Python FastAPI backend for provider routing, spreadsheet preview, research/enrichment runs, and CSV/PDF export.
 - `frontend/`: Next.js 16, React 19, and TypeScript frontend for the operator workbench.

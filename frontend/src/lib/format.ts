@@ -27,7 +27,7 @@ export function normalizeField(value: string) {
 
 export function displayValue(value: unknown) {
   if (value === null || value === undefined || value === "") {
-    return "—";
+    return "N/A";
   }
   return String(value);
 }

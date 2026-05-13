@@ -1,4 +1,4 @@
-# CT Search
+# Edna Search
 
 A Python-first research and enrichment workbench for placement agents and private-capital teams.
 
@@ -43,7 +43,7 @@ Without API keys, the app runs in demo mode so the workflow is still testable. A
 
 ## Provider Routing
 
-The provider layer is inspired by `pi-websearch`: a small normalized interface, a provider registry, and a router that can auto-select from available credentials. CT Search extends that idea for a SaaS product by scoring providers on estimated cost, speed, coverage, and confidence.
+The provider layer is inspired by `pi-websearch`: a small normalized interface, a provider registry, and a router that can auto-select from available credentials. Edna Search extends that idea for a SaaS product by scoring providers on estimated cost, speed, coverage, and confidence.
 
 Implemented adapters:
 

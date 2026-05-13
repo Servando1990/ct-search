@@ -70,7 +70,7 @@ class ResearchResponse(BaseModel):
 
 
 class ExportRequest(BaseModel):
-    title: str = "CT Search Results"
+    title: str = "Edna Search Results"
     columns: list[str] = Field(default_factory=list)
     rows: list[ResultRow] = Field(default_factory=list)
     route: RouteDecision | None = None

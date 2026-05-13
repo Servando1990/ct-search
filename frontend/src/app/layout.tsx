@@ -4,8 +4,8 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "CT Search",
-  description: "Research and enrichment workbench for capital formation teams.",
+  title: "Edna Search",
+  description: "Capital formation research, routed and cited.",
   icons: {
     icon: "/icon.svg",
   },

@@ -1,2 +1,1 @@
-"""CT Search application package."""
-
+"""Edna Search application package."""

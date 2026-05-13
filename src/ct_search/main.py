@@ -19,7 +19,7 @@ from ct_search.models import ExportRequest, ResearchRequest
 from ct_search.providers import public_providers, run_research
 from ct_search.settings import get_settings
 
-app = FastAPI(title="CT Search", version="0.1.0")
+app = FastAPI(title="Edna Search", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://127.0.0.1:3000", "http://localhost:3000"],
@@ -31,7 +31,7 @@ app.add_middleware(
 
 @app.get("/")
 async def index() -> dict[str, str]:
-    return {"name": "CT Search API", "status": "ready"}
+    return {"name": "Edna Search API", "status": "ready"}
 
 
 @app.get("/api/providers")
@@ -76,7 +76,7 @@ async def export_csv(request: ExportRequest) -> StreamingResponse:
     return StreamingResponse(
         iter([buffer.getvalue()]),
         media_type="text/csv",
-        headers={"Content-Disposition": 'attachment; filename="ct-search-results.csv"'},
+        headers={"Content-Disposition": 'attachment; filename="edna-search-results.csv"'},
     )
 
 
@@ -94,7 +94,7 @@ async def export_pdf(request: ExportRequest) -> StreamingResponse:
     )
     styles = getSampleStyleSheet()
     story: list[Any] = []
-    story.append(Paragraph(request.title or "CT Search Results", styles["Title"]))
+    story.append(Paragraph(request.title or "Edna Search Results", styles["Title"]))
     if request.route:
         story.append(
             Paragraph(
@@ -131,7 +131,7 @@ async def export_pdf(request: ExportRequest) -> StreamingResponse:
     return StreamingResponse(
         buffer,
         media_type="application/pdf",
-        headers={"Content-Disposition": 'attachment; filename="ct-search-results.pdf"'},
+        headers={"Content-Disposition": 'attachment; filename="edna-search-results.pdf"'},
     )
 
 

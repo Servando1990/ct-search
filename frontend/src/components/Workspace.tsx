@@ -4,6 +4,7 @@ import clsx from "clsx";
 import {
   ArrowDownToLine,
   BadgeCheck,
+  CheckCircle2,
   CircleDollarSign,
   FileSpreadsheet,
   Gauge,
@@ -46,6 +47,8 @@ const DEFAULT_FIELDS = [
   "recent_signal",
   "source_notes",
 ];
+
+const METADATA_COLUMNS = ["confidence", "provider", "citations"] as const;
 
 const FALLBACK_PROVIDERS: ProviderPublic[] = [
   {
@@ -114,30 +117,32 @@ type RunState = "idle" | "reading" | "running" | "exporting";
 
 export function Workspace() {
   const [providers, setProviders] = useState<ProviderPublic[]>(FALLBACK_PROVIDERS);
-  const [query, setQuery] = useState(
-    "Find US and European LP contacts for lower-mid-market healthcare funds, including role, geography, and recent public signals.",
-  );
+  const [query, setQuery] = useState("");
   const [rows, setRows] = useState<InputRow[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
+  const [fileName, setFileName] = useState("");
   const [fields, setFields] = useState<string[]>(DEFAULT_FIELDS);
   const [customField, setCustomField] = useState("");
+  const [showFields, setShowFields] = useState(false);
   const [routingMode, setRoutingMode] = useState<RoutingMode>("best");
   const [manualProvider, setManualProvider] = useState<ProviderId>("parallel");
   const [result, setResult] = useState<ResearchResponse | null>(null);
   const [status, setStatus] = useState<RunState>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     getProviders()
       .then((nextProviders) => {
         setProviders(nextProviders);
+        setNotice(null);
         if (nextProviders.length) {
           setManualProvider(nextProviders[0].id);
         }
       })
-      .catch((providerError: Error) => {
-        setError(providerError.message);
+      .catch(() => {
+        setNotice(null);
       });
   }, []);
 
@@ -152,6 +157,11 @@ export function Workspace() {
   const busy = status !== "idle";
   const resultColumns = result?.columns ?? [];
   const resultRows = result?.rows ?? [];
+  const normalizedCustomField = normalizeField(customField);
+  const canAddCustomField = Boolean(normalizedCustomField) && !fields.includes(normalizedCustomField);
+  const routeLabel =
+    result?.provider_label ?? (routingMode === "manual" ? activeProvider?.label : "Auto");
+  const routeEstimate = result ? `${currency(result.estimated_cost)} est` : "Estimate pending";
 
   async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -162,10 +172,12 @@ export function Workspace() {
       const preview = await previewSpreadsheet(file);
       setRows(preview.rows);
       setColumns(preview.columns);
+      setFileName(preview.filename || file.name);
       setResult(null);
     } catch (previewError) {
       setError(errorMessage(previewError));
     } finally {
+      event.target.value = "";
       setStatus("idle");
     }
   }
@@ -177,9 +189,10 @@ export function Workspace() {
   }
 
   function addField() {
-    const field = normalizeField(customField);
-    if (!field) return;
-    setFields((current) => (current.includes(field) ? current : [...current, field]));
+    if (!canAddCustomField) return;
+    setFields((current) =>
+      current.includes(normalizedCustomField) ? current : [...current, normalizedCustomField],
+    );
     setCustomField("");
   }
 
@@ -221,7 +234,7 @@ export function Workspace() {
     setError(null);
     try {
       const blob = await exportResults(kind, result);
-      downloadBlob(blob, `ct-search-results.${kind}`);
+      downloadBlob(blob, `edna-search-results.${kind}`);
     } catch (exportError) {
       setError(errorMessage(exportError));
     } finally {
@@ -230,24 +243,29 @@ export function Workspace() {
   }
 
   return (
-    <div className="workspace-shell">
+    <div className="workspace-shell" aria-busy={busy}>
       <aside className="system-rail" aria-label="Workspace status">
         <div className="brand-block">
           <span className="overline">ControlThrive</span>
-          <h1>CT Search</h1>
-          <p>Capital formation research, routed with cost and confidence in view.</p>
+          <h1>Edna Search</h1>
+          <p>Research and enrichment</p>
         </div>
 
         <div className="rail-group">
-          <span className="rail-label">Provider Status</span>
+          <span className="rail-label">Providers</span>
           <div className="provider-stack">
             {providers.map((provider) => (
               <div
                 className={clsx("provider-status", provider.available && "is-live")}
                 key={provider.id}
+                title={
+                  provider.available
+                    ? `${provider.label} is connected`
+                    : `${provider.label} will run in demo mode until ${provider.env_keys[0]} is set`
+                }
               >
                 <span>{provider.label}</span>
-                <strong>{provider.available ? "Live" : provider.env_keys[0]}</strong>
+                <strong>{provider.available ? "Live" : "Key needed"}</strong>
               </div>
             ))}
           </div>
@@ -255,106 +273,133 @@ export function Workspace() {
 
         <div className="route-brief">
           <span className="rail-label">Current Route</span>
-          <strong>{result?.provider_label ?? activeProvider?.label ?? "Auto"}</strong>
-          <p>{result?.route.reason ?? "Run a job to price and select the provider."}</p>
-          <span>{result ? currency(result.estimated_cost) : "$0.0000"} estimated</span>
+          <strong>{routeLabel}</strong>
+          <span>{routeEstimate}</span>
         </div>
       </aside>
 
       <main className="operator-grid">
         <section className="input-panel" aria-labelledby="input-heading">
           <PanelHeader
+            id="input-heading"
             icon={<Search aria-hidden="true" size={18} />}
             eyebrow="Input"
-            title="Search or enrich"
+            title="Brief"
           />
 
-          <label className="field-label" htmlFor="query">
+          <label className="sr-only" htmlFor="query">
             Brief
           </label>
           <textarea
             id="query"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            rows={8}
+            rows={6}
+            placeholder="Describe the list or enrichment job."
             spellCheck
           />
 
           <button
             className="upload-target"
             type="button"
+            disabled={status === "reading"}
             onClick={() => fileInputRef.current?.click()}
           >
             <FileSpreadsheet aria-hidden="true" size={24} />
             <span>
-              <strong>{rows.length ? `${compactNumber(rows.length)} rows loaded` : "Spreadsheet"}</strong>
-              <small>{columns.length ? columns.join(" / ") : "CSV or Excel contact lists"}</small>
+              <strong>
+                {status === "reading"
+                  ? "Reading list"
+                  : rows.length
+                    ? `${compactNumber(rows.length)} rows loaded`
+                    : "Contact list"}
+              </strong>
+              <small>
+                {fileName || (columns.length ? columns.join(" / ") : "CSV/XLSX")}
+              </small>
             </span>
             <Upload aria-hidden="true" size={18} />
           </button>
           <input
             ref={fileInputRef}
-            className="sr-only"
             type="file"
             accept=".csv,.xlsx,.xls,.xlsm,.txt"
+            hidden
             onChange={handleFileChange}
           />
 
           <div className="field-toolbar">
             <div>
               <span className="rail-label">Fields</span>
-              <strong>{fields.length} selected</strong>
+              <strong>{fields.length}</strong>
             </div>
-            <button type="button" onClick={() => setFields([])}>
-              Clear
+            <button
+              type="button"
+              onClick={() => setShowFields((current) => !current)}
+              aria-controls="field-editor"
+              aria-expanded={showFields}
+            >
+              {showFields ? "Done" : "Edit"}
             </button>
           </div>
 
-          <div className="chip-grid" aria-label="Enrichment fields">
-            {DEFAULT_FIELDS.map((field) => (
-              <button
-                className={clsx("field-chip", fields.includes(field) && "is-active")}
-                key={field}
-                type="button"
-                onClick={() => toggleField(field)}
-              >
-                {field}
-              </button>
-            ))}
-            {fields
-              .filter((field) => !DEFAULT_FIELDS.includes(field))
-              .map((field) => (
+          {showFields ? (
+            <div className="field-editor" id="field-editor">
+              <div className="chip-grid" aria-label="Enrichment fields">
+                {DEFAULT_FIELDS.map((field) => (
+                  <button
+                    className={clsx("field-chip", fields.includes(field) && "is-active")}
+                    key={field}
+                    type="button"
+                    aria-pressed={fields.includes(field)}
+                    onClick={() => toggleField(field)}
+                  >
+                    {formatColumnLabel(field)}
+                  </button>
+                ))}
+                {fields
+                  .filter((field) => !DEFAULT_FIELDS.includes(field))
+                  .map((field) => (
+                    <button
+                      className="field-chip is-active"
+                      key={field}
+                      type="button"
+                      aria-pressed="true"
+                      onClick={() => toggleField(field)}
+                    >
+                      {formatColumnLabel(field)}
+                    </button>
+                  ))}
+              </div>
+
+              <div className="custom-field-row">
+                <input
+                  id="custom-field"
+                  type="text"
+                  value={customField}
+                  onChange={(event) => setCustomField(event.target.value)}
+                  onKeyDown={handleCustomFieldKeyDown}
+                  placeholder="custom field"
+                  aria-label="Custom enrichment field"
+                />
                 <button
-                  className="field-chip is-active"
-                  key={field}
                   type="button"
-                  onClick={() => toggleField(field)}
+                  onClick={addField}
+                  disabled={!canAddCustomField}
                 >
-                  {field}
+                  Add
                 </button>
-              ))}
-          </div>
-
-          <div className="custom-field-row">
-            <input
-              type="text"
-              value={customField}
-              onChange={(event) => setCustomField(event.target.value)}
-              onKeyDown={handleCustomFieldKeyDown}
-              placeholder="custom_field"
-              aria-label="Custom enrichment field"
-            />
-            <button type="button" onClick={addField}>
-              Add
-            </button>
-          </div>
+              </div>
+            </div>
+          ) : null}
         </section>
 
         <section className="routing-panel" aria-labelledby="routing-heading">
           <PanelHeader
+            id="routing-heading"
             icon={<SlidersHorizontal aria-hidden="true" size={18} />}
             eyebrow="Routing"
-            title="Choose the edge"
+            title="Route"
           />
 
           <div className="route-tabs" role="group" aria-label="Routing preference">
@@ -363,6 +408,7 @@ export function Workspace() {
                 className={clsx(routingMode === mode && "is-active")}
                 key={mode}
                 type="button"
+                aria-pressed={routingMode === mode}
                 onClick={() => setRoutingMode(mode)}
               >
                 {mode}
@@ -391,34 +437,40 @@ export function Workspace() {
               ) : (
                 <Layers3 aria-hidden="true" size={18} />
               )}
-              Run research
+              {status === "running" ? "Running" : "Run research"}
             </button>
-            <span>{statusLabel(status)}</span>
+            {status !== "idle" ? (
+              <span role="status" aria-live="polite">
+                {statusLabel(status)}
+              </span>
+            ) : null}
           </div>
 
-          <div className="preview-panel">
-            <div className="table-heading">
-              <span className="rail-label">Preview</span>
-              <strong>{compactNumber(rows.length)} rows</strong>
+          {previewRows.length ? (
+            <div className="preview-panel">
+              <div className="table-heading">
+                <span className="rail-label">Preview</span>
+                <strong>{compactNumber(rows.length)} rows</strong>
+              </div>
+              <div className="preview-table-wrap">
+                <DataTable
+                  label="Spreadsheet preview"
+                  columns={previewColumns}
+                  rows={previewRows.map((row) => previewColumns.map((column) => row[column]))}
+                  compact
+                />
+              </div>
             </div>
-            {previewRows.length ? (
-              <DataTable
-                columns={previewColumns}
-                rows={previewRows.map((row) => previewColumns.map((column) => row[column]))}
-                compact
-              />
-            ) : (
-              <EmptyBlock title="No list loaded" body="Search mode is active." />
-            )}
-          </div>
+          ) : null}
         </section>
 
         <section className="results-panel" aria-labelledby="results-heading">
           <div className="results-header">
             <PanelHeader
+              id="results-heading"
               icon={<BadgeCheck aria-hidden="true" size={18} />}
               eyebrow="Output"
-              title="Cited results"
+              title="Results"
             />
             <div className="export-group">
               <button
@@ -442,29 +494,32 @@ export function Workspace() {
             </div>
           </div>
 
-          <div className="metric-strip" aria-label="Run metrics">
-            <Metric label="Rows" value={compactNumber(resultRows.length)} icon={<Layers3 size={15} />} />
-            <Metric
-              label="Cost"
-              value={result ? currency(result.estimated_cost) : "$0.0000"}
-              icon={<CircleDollarSign size={15} />}
-            />
-            <Metric
-              label="Mode"
-              value={result?.is_demo ? "Demo" : result ? "Live" : "Ready"}
-              icon={<ShieldCheck size={15} />}
-            />
-            <Metric
-              label="Latency"
-              value={result ? `${result.elapsed_ms} ms` : "—"}
-              icon={<Gauge size={15} />}
-            />
-          </div>
+          {result ? (
+            <div className="metric-strip" aria-label="Run metrics">
+              <Metric label="Rows" value={compactNumber(resultRows.length)} icon={<Layers3 size={15} />} />
+              <Metric
+                label="Cost"
+                value={currency(result.estimated_cost)}
+                icon={<CircleDollarSign size={15} />}
+              />
+              <Metric
+                label="Mode"
+                value={result.is_demo ? "Demo" : "Live"}
+                icon={<ShieldCheck size={15} />}
+              />
+              <Metric
+                label="Latency"
+                value={`${result.elapsed_ms} ms`}
+                icon={<Gauge size={15} />}
+              />
+            </div>
+          ) : null}
 
-          {error ? <div className="error-banner">{error}</div> : null}
-          {result?.warnings.length ? (
-            <div className="warning-stack">
-              {result.warnings.map((warning) => (
+          {error ? <div className="error-banner" role="alert">{error}</div> : null}
+          {notice || result?.warnings.length ? (
+            <div className="warning-stack" role="status" aria-live="polite">
+              {notice ? <span>{notice}</span> : null}
+              {result?.warnings.map((warning) => (
                 <span key={warning}>{warning}</span>
               ))}
             </div>
@@ -475,8 +530,8 @@ export function Workspace() {
               <ResultsTable columns={resultColumns} rows={resultRows} />
             ) : (
               <EmptyBlock
-                title={`${connectedProviders} live providers`}
-                body="Results will appear with provider, confidence, and citations."
+                title="No results yet"
+                body={connectedProviders ? `${connectedProviders} live providers` : undefined}
               />
             )}
           </div>
@@ -488,10 +543,12 @@ export function Workspace() {
 
 function PanelHeader({
   eyebrow,
+  id,
   icon,
   title,
 }: {
   eyebrow: string;
+  id: string;
   icon: ReactNode;
   title: string;
 }) {
@@ -500,7 +557,7 @@ function PanelHeader({
       <span>{icon}</span>
       <div>
         <p>{eyebrow}</p>
-        <h2>{title}</h2>
+        <h2 id={id}>{title}</h2>
       </div>
     </div>
   );
@@ -516,16 +573,34 @@ function ProviderTile({
   provider: ProviderPublic;
 }) {
   return (
-    <button className={clsx("provider-tile", active && "is-active")} type="button" onClick={onSelect}>
+    <button
+      className={clsx("provider-tile", active && "is-active")}
+      type="button"
+      aria-pressed={active}
+      onClick={onSelect}
+    >
       <span className="provider-title">
         <strong>{provider.label}</strong>
-        <em>{provider.available ? "Live" : "Demo"}</em>
+        <em className={provider.available ? "is-live" : undefined}>
+          {active ? (
+            <>
+              <CheckCircle2 aria-hidden="true" size={12} />
+              Manual
+            </>
+          ) : provider.available ? (
+            "Live"
+          ) : (
+            "Demo"
+          )}
+        </em>
       </span>
       <small>{provider.strengths.join(" / ")}</small>
       <span className="provider-metrics">
         <span>{currency(provider.estimated_search_cost)}</span>
-        <span>{percent(provider.speed_score)} speed</span>
-        <span>{percent(provider.quality_score)} confidence</span>
+        <span aria-label={`${percent(provider.speed_score)} speed`}>{percent(provider.speed_score)}</span>
+        <span aria-label={`${percent(provider.quality_score)} confidence`}>
+          {percent(provider.quality_score)}
+        </span>
       </span>
     </button>
   );
@@ -542,13 +617,17 @@ function Metric({ icon, label, value }: { icon: ReactNode; label: string; value:
 }
 
 function ResultsTable({ columns, rows }: { columns: string[]; rows: ResultRow[] }) {
+  const dataColumns = columns.filter(
+    (column) => !METADATA_COLUMNS.includes(column as (typeof METADATA_COLUMNS)[number]),
+  );
   return (
     <DataTable
-      columns={[...columns, "confidence", "provider", "citations"]}
+      label="Research results"
+      columns={[...dataColumns, ...METADATA_COLUMNS]}
       rows={rows.map((row) => {
         const combined: Record<string, CellValue> = { ...row.input, ...row.fields };
         return [
-          ...columns.map((column) => combined[column] ?? null),
+          ...dataColumns.map((column) => combined[column] ?? null),
           row.confidence,
           row.provider,
           row.citations,
@@ -561,19 +640,22 @@ function ResultsTable({ columns, rows }: { columns: string[]; rows: ResultRow[] 
 function DataTable({
   columns,
   compact = false,
+  label,
   rows,
 }: {
   columns: string[];
   compact?: boolean;
+  label: string;
   rows: Array<Array<CellValue | ResultRow["citations"] | undefined>>;
 }) {
   return (
     <table className={clsx("data-table", compact && "is-compact")}>
+      <caption className="sr-only">{label}</caption>
       <thead>
         <tr>
           {columns.map((column) => (
-            <th data-column={column} key={column}>
-              {column}
+            <th data-column={column} key={column} title={column}>
+              {formatColumnLabel(column)}
             </th>
           ))}
         </tr>
@@ -593,27 +675,34 @@ function DataTable({
   );
 }
 
-function EmptyBlock({ body, title }: { body: string; title: string }) {
+function EmptyBlock({ body, title }: { body?: string; title: string }) {
   return (
     <div className="empty-block">
       <strong>{title}</strong>
-      <span>{body}</span>
+      {body ? <span>{body}</span> : null}
     </div>
   );
 }
 
 function renderCell(column: string, cell: CellValue | ResultRow["citations"] | undefined) {
   if (Array.isArray(cell)) {
-    if (!cell.length) return <span className="muted-cell">—</span>;
+    if (!cell.length) return <span className="muted-cell">No source</span>;
     return (
       <div className="citation-stack">
-        {cell.slice(0, 3).map((citation) =>
+        {cell.slice(0, 3).map((citation, index) =>
           citation.url ? (
-            <a key={citation.url} href={citation.url} target="_blank" rel="noreferrer">
+            <a
+              key={`${citation.url}-${index}`}
+              href={citation.url}
+              target="_blank"
+              rel="noreferrer"
+            >
               {citation.title || "source"}
             </a>
           ) : (
-            <span key={citation.title}>{citation.title || citation.excerpt || "source"}</span>
+            <span key={`${citation.title || citation.excerpt || "source"}-${index}`}>
+              {citation.title || citation.excerpt || "source"}
+            </span>
           ),
         )}
       </div>
@@ -635,11 +724,15 @@ function renderCell(column: string, cell: CellValue | ResultRow["citations"] | u
   return <span>{displayValue(cell)}</span>;
 }
 
+function formatColumnLabel(column: string) {
+  return column.replace(/_/g, " ");
+}
+
 function statusLabel(status: RunState) {
   if (status === "reading") return "Reading file";
   if (status === "running") return "Researching";
-  if (status === "exporting") return "Exporting";
-  return "Idle";
+  if (status === "exporting") return "Exporting file";
+  return "";
 }
 
 function errorMessage(error: unknown) {
