@@ -1,0 +1,24 @@
+{
+  "lists": [
+    {
+      "name": "placement_agents_europe_london",
+      "display_name": "Placement agents in Europe including London",
+      "geography": "Europe, explicitly including London and the United Kingdom",
+      "target_count": 20,
+      "candidate_pool": 60,
+      "max_headcount": 10,
+      "require_contact_email": true,
+      "require_contact_linkedin": true
+    },
+    {
+      "name": "placement_agents_ny",
+      "display_name": "Placement agents in New York",
+      "geography": "New York City or New York State, United States",
+      "target_count": 20,
+      "candidate_pool": 60,
+      "max_headcount": 10,
+      "require_contact_email": true,
+      "require_contact_linkedin": true
+    }
+  ]
+}
