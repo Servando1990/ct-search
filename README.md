@@ -14,6 +14,7 @@ FastAPI backend (Python)
   - CSV/PDF exports
 
 Next.js frontend (TypeScript)
+  - public launch page at /
   - operator workbench
   - upload/search controls
   - provider scoring and manual selection
@@ -37,7 +38,7 @@ npm install
 npm run dev
 ```
 
-Then open [http://127.0.0.1:3000](http://127.0.0.1:3000).
+Then open [http://127.0.0.1:3000](http://127.0.0.1:3000) for the launch page or [http://127.0.0.1:3000/workbench](http://127.0.0.1:3000/workbench) for the product workbench.
 
 Without API keys, the app runs in demo mode so the workflow is still testable. Add keys from `.env.example` to enable live providers.
 

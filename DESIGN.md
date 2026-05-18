@@ -122,6 +122,7 @@ The system rejects generic AI-chat aesthetics, oversized SaaS heroes, neon gradi
 **Key Characteristics:**
 
 - Product launch page first, workbench proof second.
+- Public launch at `/`; product workflow at `/workbench`.
 - Green-tinted neutral surfaces with forest as the primary action color, blue for cited evidence, and clay for numbered narrative details.
 - Large confident display type, thin product rules, compact proof modules, and visible focus states.
 - Short sections that explain why routing, confidence, citations, and exports belong together.

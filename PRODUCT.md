@@ -16,6 +16,15 @@ Edna Search is a Python-first research and enrichment workbench for capital form
 
 Success means users can trust the provenance of enriched data, compare provider tradeoffs quickly, and return to their spreadsheet or CRM with cleaner rows and fewer unanswered questions.
 
+## Frontend Surfaces
+
+The repo keeps two surfaces in the same Next.js app:
+
+- `/` is the public launch page. It should position Edna Search, show product proof, and drive demo demand.
+- `/workbench` is the product workbench. It should stay dense, table-first, and focused on upload, provider routing, cited review, and export.
+
+Do not fold launch-page positioning copy into the operator workflow, and do not turn the public homepage into raw internal tooling.
+
 ## Brand Personality
 
 Sophisticated, simple, and chef-kiss. The interface should feel like a serious capital-markets workspace: fast to scan, restrained in tone, confident with data, and polished without becoming theatrical.

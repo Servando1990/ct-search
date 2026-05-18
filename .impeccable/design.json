@@ -1,0 +1,279 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-05-13T19:05:33+02:00",
+  "title": "Design System: CT Search",
+  "extensions": {
+    "colorMeta": {
+      "bg": {
+        "role": "neutral",
+        "displayName": "Warm Ledger Background",
+        "canonical": "oklch(0.955 0.023 88)",
+        "tonalRamp": [
+          "oklch(0.18 0.023 88)",
+          "oklch(0.28 0.023 88)",
+          "oklch(0.4 0.023 88)",
+          "oklch(0.52 0.023 88)",
+          "oklch(0.66 0.023 88)",
+          "oklch(0.78 0.023 88)",
+          "oklch(0.88 0.023 88)",
+          "oklch(0.955 0.023 88)"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Paper Surface",
+        "canonical": "oklch(0.988 0.011 86)",
+        "tonalRamp": [
+          "oklch(0.18 0.011 86)",
+          "oklch(0.3 0.011 86)",
+          "oklch(0.42 0.011 86)",
+          "oklch(0.56 0.011 86)",
+          "oklch(0.7 0.011 86)",
+          "oklch(0.82 0.011 86)",
+          "oklch(0.92 0.011 86)",
+          "oklch(0.988 0.011 86)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Deep Ink",
+        "canonical": "oklch(0.205 0.025 155)",
+        "tonalRamp": [
+          "oklch(0.16 0.025 155)",
+          "oklch(0.205 0.025 155)",
+          "oklch(0.32 0.025 155)",
+          "oklch(0.45 0.025 155)",
+          "oklch(0.58 0.025 155)",
+          "oklch(0.72 0.025 155)",
+          "oklch(0.85 0.025 155)",
+          "oklch(0.94 0.025 155)"
+        ]
+      },
+      "forest": {
+        "role": "primary",
+        "displayName": "Ledger Forest",
+        "canonical": "oklch(0.34 0.075 156)",
+        "tonalRamp": [
+          "oklch(0.16 0.075 156)",
+          "oklch(0.24 0.075 156)",
+          "oklch(0.34 0.075 156)",
+          "oklch(0.46 0.075 156)",
+          "oklch(0.58 0.075 156)",
+          "oklch(0.7 0.075 156)",
+          "oklch(0.82 0.075 156)",
+          "oklch(0.91 0.047 150)"
+        ]
+      },
+      "brass": {
+        "role": "secondary",
+        "displayName": "Brass Marker",
+        "canonical": "oklch(0.54 0.112 75)",
+        "tonalRamp": [
+          "oklch(0.18 0.08 75)",
+          "oklch(0.28 0.095 75)",
+          "oklch(0.4 0.105 75)",
+          "oklch(0.54 0.112 75)",
+          "oklch(0.66 0.1 75)",
+          "oklch(0.78 0.075 75)",
+          "oklch(0.88 0.045 75)",
+          "oklch(0.95 0.025 75)"
+        ]
+      },
+      "rust": {
+        "role": "tertiary",
+        "displayName": "Rust Risk",
+        "canonical": "oklch(0.51 0.112 38)",
+        "tonalRamp": [
+          "oklch(0.18 0.08 38)",
+          "oklch(0.28 0.095 38)",
+          "oklch(0.39 0.108 38)",
+          "oklch(0.51 0.112 38)",
+          "oklch(0.64 0.095 38)",
+          "oklch(0.76 0.07 38)",
+          "oklch(0.87 0.045 38)",
+          "oklch(0.93 0.04 36)"
+        ]
+      },
+      "blue": {
+        "role": "secondary",
+        "displayName": "Source Blue",
+        "canonical": "oklch(0.43 0.086 245)",
+        "tonalRamp": [
+          "oklch(0.18 0.065 245)",
+          "oklch(0.28 0.078 245)",
+          "oklch(0.43 0.086 245)",
+          "oklch(0.55 0.075 245)",
+          "oklch(0.67 0.06 245)",
+          "oklch(0.78 0.045 245)",
+          "oklch(0.88 0.03 245)",
+          "oklch(0.95 0.018 245)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Brand block title only."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Panel titles and empty-state titles."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Buttons, provider names, selected states, and compact values."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Data cells, help text, descriptions, warnings, and control copy."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Eyebrows, table headers, rail labels, and compact metadata."
+      }
+    },
+    "shadows": [
+      {
+        "name": "route-brief-ambient-lift",
+        "value": "0 24px 80px oklch(0.2 0.025 155 / 0.09)",
+        "purpose": "Reserved for the current route summary in the rail and rare anchored overlays."
+      },
+      {
+        "name": "focus-ring",
+        "value": "0 0 0 3px oklch(0.34 0.075 156 / 0.18)",
+        "purpose": "Keyboard-visible focus on controls and fields."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-only",
+        "value": "150ms to 250ms ease-out",
+        "purpose": "Use for control feedback only. The current app intentionally avoids page choreography."
+      },
+      {
+        "name": "spin",
+        "value": "0.9s linear infinite",
+        "purpose": "Loading spinner only, disabled by reduced-motion handling."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "rail-collapse",
+        "value": "1260px"
+      },
+      {
+        "name": "single-column",
+        "value": "800px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Run Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Forest-filled primary action for running research.",
+      "html": "<button class=\"ds-btn-primary\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 3 4 7v10l8 4 8-4V7l-8-4Zm0 2.2 5.3 2.65L12 10.5 6.7 7.85 12 5.2Zm-6 4.4 5 2.5v6.4l-5-2.5V9.6Zm7 8.9v-6.4l5-2.5V16l-5 2.5Z\" fill=\"currentColor\"/></svg><span>Run research</span></button>",
+      "css": ".ds-btn-primary { min-height: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; border: 1px solid var(--forest, oklch(0.34 0.075 156)); border-radius: 8px; background: var(--forest, oklch(0.34 0.075 156)); color: var(--surface, oklch(0.988 0.011 86)); padding: 0 0.75rem; font: 760 1rem/1.35 Avenir Next, Helvetica Neue, Arial, sans-serif; } .ds-btn-primary svg { width: 18px; height: 18px; } .ds-btn-primary:hover { filter: brightness(1.04); } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 3px oklch(0.34 0.075 156 / 0.18); }"
+    },
+    {
+      "name": "Secondary Export Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Compact paper button for CSV and PDF exports.",
+      "html": "<button class=\"ds-btn-secondary\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 3a1 1 0 0 1 1 1v8.6l2.3-2.3a1 1 0 1 1 1.4 1.4l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 1 1 1.4-1.4l2.3 2.3V4a1 1 0 0 1 1-1ZM5 18a1 1 0 0 1 1 1h12a1 1 0 1 1 0 2H6a1 1 0 0 1-1-1Z\" fill=\"currentColor\"/></svg><span>CSV</span></button>",
+      "css": ".ds-btn-secondary { min-height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; border: 1px solid var(--line-strong, oklch(0.71 0.035 82)); border-radius: 8px; background: var(--surface, oklch(0.988 0.011 86)); color: var(--ink, oklch(0.205 0.025 155)); padding: 0 0.75rem; font: 760 0.88rem/1.35 Avenir Next, Helvetica Neue, Arial, sans-serif; } .ds-btn-secondary svg { width: 16px; height: 16px; } .ds-btn-secondary:hover { border-color: var(--forest, oklch(0.34 0.075 156)); } .ds-btn-secondary:focus-visible { outline: none; box-shadow: 0 0 0 3px oklch(0.34 0.075 156 / 0.18); }"
+    },
+    {
+      "name": "Input Field",
+      "kind": "input",
+      "refersTo": "input-field",
+      "description": "Warm paper text field for custom enrichment fields and brief controls.",
+      "html": "<label class=\"ds-field\"><span>Custom field</span><input value=\"recent_signal\" /></label>",
+      "css": ".ds-field { display: grid; gap: 0.5rem; color: var(--ink-soft, oklch(0.435 0.028 150)); font: 760 0.82rem/1.2 Avenir Next, Helvetica Neue, Arial, sans-serif; } .ds-field input { height: 42px; border: 1px solid var(--line-strong, oklch(0.71 0.035 82)); border-radius: 8px; background: var(--surface-input, oklch(0.995 0.008 86)); color: var(--ink, oklch(0.205 0.025 155)); padding: 0 0.75rem; font: 400 0.88rem/1.5 Avenir Next, Helvetica Neue, Arial, sans-serif; } .ds-field input:focus-visible { border-color: var(--forest, oklch(0.34 0.075 156)); box-shadow: 0 0 0 3px oklch(0.34 0.075 156 / 0.18); outline: none; }"
+    },
+    {
+      "name": "Selected Field Chip",
+      "kind": "chip",
+      "refersTo": "chip-selected",
+      "description": "Pill-shaped selected enrichment field.",
+      "html": "<button class=\"ds-chip-selected\">sector_focus</button>",
+      "css": ".ds-chip-selected { min-height: 34px; max-width: 100%; border: 1px solid var(--forest, oklch(0.34 0.075 156)); border-radius: 999px; background: var(--forest-soft, oklch(0.91 0.047 150)); color: var(--forest, oklch(0.34 0.075 156)); padding: 0 0.75rem; font: 760 0.88rem/1.35 Avenir Next, Helvetica Neue, Arial, sans-serif; overflow-wrap: anywhere; } .ds-chip-selected:hover { filter: brightness(0.99); } .ds-chip-selected:focus-visible { outline: none; box-shadow: 0 0 0 3px oklch(0.34 0.075 156 / 0.18); }"
+    },
+    {
+      "name": "Provider Tile",
+      "kind": "card",
+      "refersTo": "provider-tile",
+      "description": "Selectable provider option with cost, speed, and confidence metadata.",
+      "html": "<button class=\"ds-provider-tile\"><span class=\"ds-provider-title\"><strong>Parallel</strong><em>Demo</em></span><small>cited research / structured enrichment / source basis</small><span class=\"ds-provider-metrics\"><span>$0.0060</span><span>78% speed</span><span>94% confidence</span></span></button>",
+      "css": ".ds-provider-tile { width: 100%; display: grid; gap: 0.5rem; padding: 1rem; border: 1px solid var(--line, oklch(0.835 0.029 86)); border-radius: 8px; background: oklch(0.98 0.012 86); color: var(--ink, oklch(0.205 0.025 155)); text-align: start; } .ds-provider-tile:hover { border-color: var(--forest, oklch(0.34 0.075 156)); background: var(--forest-soft, oklch(0.91 0.047 150)); } .ds-provider-tile:focus-visible { outline: none; box-shadow: 0 0 0 3px oklch(0.34 0.075 156 / 0.18); } .ds-provider-title, .ds-provider-metrics { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; } .ds-provider-title strong { font: 760 1rem/1.35 Avenir Next, Helvetica Neue, Arial, sans-serif; } .ds-provider-title em { border-radius: 999px; background: var(--surface-muted, oklch(0.935 0.028 88)); color: var(--ink-soft, oklch(0.435 0.028 150)); padding: 0.25rem 0.45rem; font: 780 0.72rem/1.2 Avenir Next, Helvetica Neue, Arial, sans-serif; font-style: normal; } .ds-provider-tile small { color: var(--ink-soft, oklch(0.435 0.028 150)); line-height: 1.35; } .ds-provider-metrics { color: var(--ink-soft, oklch(0.435 0.028 150)); font: 400 0.74rem/1.35 SFMono-Regular, SF Mono, Consolas, monospace; }"
+    },
+    {
+      "name": "Metric Tile",
+      "kind": "card",
+      "refersTo": "metric-tile",
+      "description": "Compact run metric for rows, cost, mode, and latency.",
+      "html": "<div class=\"ds-metric\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M4 5h16v4H4V5Zm0 6h16v4H4v-4Zm0 6h10v2H4v-2Z\" fill=\"currentColor\"/></svg><small>Cost</small><strong>$0.0420</strong></div>",
+      "css": ".ds-metric { min-width: 0; display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 0.18rem 0.5rem; padding: 0.75rem; border: 1px solid var(--line, oklch(0.835 0.029 86)); border-radius: 8px; background: var(--surface-muted, oklch(0.935 0.028 88)); color: var(--ink, oklch(0.205 0.025 155)); } .ds-metric svg { grid-row: span 2; width: 15px; height: 15px; color: var(--forest, oklch(0.34 0.075 156)); } .ds-metric small { color: var(--ink-soft, oklch(0.435 0.028 150)); font: 720 0.74rem/1.2 Avenir Next, Helvetica Neue, Arial, sans-serif; } .ds-metric strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 0.88rem/1.35 SFMono-Regular, SF Mono, Consolas, monospace; }"
+    },
+    {
+      "name": "Results Table",
+      "kind": "custom",
+      "refersTo": "results-table",
+      "description": "Dense cited output table with sticky uppercase headers and ruled rows.",
+      "html": "<div class=\"ds-table-wrap\"><table class=\"ds-table\"><thead><tr><th>firm</th><th>confidence</th><th>provider</th><th>citations</th></tr></thead><tbody><tr><td>Northstar Capital</td><td><span class=\"ds-confidence\">92%</span></td><td>parallel</td><td><a href=\"#\">source</a></td></tr></tbody></table></div>",
+      "css": ".ds-table-wrap { overflow: auto; border: 1px solid var(--line, oklch(0.835 0.029 86)); border-radius: 8px; background: var(--surface-input, oklch(0.995 0.008 86)); } .ds-table { width: 100%; min-width: 680px; border-collapse: collapse; } .ds-table th, .ds-table td { min-width: 128px; max-width: 320px; padding: 0.85rem; border-block-end: 1px solid var(--line, oklch(0.835 0.029 86)); text-align: start; vertical-align: top; line-height: 1.4; } .ds-table th { position: sticky; top: 0; background: var(--table-header, oklch(0.93 0.027 86)); color: var(--ink, oklch(0.205 0.025 155)); font: 780 0.74rem/1.2 Avenir Next, Helvetica Neue, Arial, sans-serif; text-transform: uppercase; } .ds-table td { color: oklch(0.28 0.026 155); font: 400 0.88rem/1.4 Avenir Next, Helvetica Neue, Arial, sans-serif; overflow-wrap: anywhere; } .ds-table a { color: var(--blue, oklch(0.43 0.086 245)); font-weight: 720; text-decoration: none; } .ds-table a:hover { text-decoration: underline; } .ds-confidence { display: inline-flex; border-radius: 999px; background: var(--forest-soft, oklch(0.91 0.047 150)); color: var(--forest, oklch(0.34 0.075 156)); padding: 0.24rem 0.5rem; font: 760 0.76rem/1.2 SFMono-Regular, SF Mono, Consolas, monospace; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Analyst's Ledger",
+    "overview": "CT Search should feel like a precise capital-markets worksheet with the judgment of a trusted research analyst. The design is light, editorial, dense, and restrained: warm paper surfaces, exact borders, serif headings used sparingly, compact controls, and enough color to show status without turning the workspace into decoration.\n\nThe reference triangle is deliberate: Linear for density, typography, crisp figures, and control ergonomics; Lightfield for minimal product language and systems-minded primitives; Rogo for private-capital language, institutional trust, and finance-specific positioning.\n\nThe system rejects generic AI-chat aesthetics, oversized SaaS heroes, neon gradients, glassmorphism, decorative card grids, noisy chrome, and hidden provider logic. The first screen is the working product surface: upload, route, review, export.",
+    "keyCharacteristics": [
+      "Dense, table-first workspace with stable columns and persistent export affordances.",
+      "Warm neutral surfaces with forest as the operator accent, brass and rust reserved for metadata and risk.",
+      "Crisp 8px controls, thin borders, compact typography, and visible focus states.",
+      "Progressive disclosure for provider routing, confidence, cost, warnings, and citations."
+    ],
+    "rules": [
+      {
+        "name": "The Evidence Color Rule",
+        "body": "Blue belongs to sources and navigable citations. Forest belongs to operation and selection. Do not swap them.",
+        "section": "colors"
+      },
+      {
+        "name": "The No Pure Neutral Rule",
+        "body": "Never introduce `#000` or `#fff`; all neutrals stay gently warm or green-tinted.",
+        "section": "colors"
+      },
+      {
+        "name": "The Serif Restraint Rule",
+        "body": "Use Georgia for brand, panel, and empty-state headings only. Never use display serif in buttons, labels, metrics, or data tables.",
+        "section": "typography"
+      },
+      {
+        "name": "The Figure Clarity Rule",
+        "body": "Costs, latency, provider scores, and compact estimates use the mono stack so figures line up and read as audit data.",
+        "section": "typography"
+      },
+      {
+        "name": "The Ruled Surface Rule",
+        "body": "Use borders and tonal changes before shadows. If a shadow appears on a repeated table, metric tile, or provider list item, it is probably too much.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do keep the first viewport as the actual workbench: upload, route, review, export.",
+      "Do use forest for selected controls, run actions, focus rings, confidence chips, and live states.",
+      "Do preserve compact 8px controls, precise borders, and table-first density.",
+      "Do expose provider, cost, confidence, citations, warnings, and exports near the workflow they affect.",
+      "Do keep reduced-motion support and visible keyboard focus on every interactive element."
+    ],
+    "donts": [
+      "Don't use generic AI-chat aesthetics, oversized SaaS heroes, neon gradients, glassmorphism, decorative card grids, or noisy chrome.",
+      "Don't make the first viewport a marketing landing page.",
+      "Don't hide provider choice, confidence, citations, warnings, or export affordances behind theatrical flows.",
+      "Don't use `border-left` or `border-right` greater than 1px as colored accents on cards, list items, callouts, or alerts.",
+      "Don't introduce pure black, pure white, gradient text, decorative motion, or full-saturation inactive states."
+    ]
+  }
+}

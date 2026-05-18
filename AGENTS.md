@@ -4,17 +4,19 @@ Guidance for future coding agents working in this repository.
 
 ## Project Shape
 
-Edna Search is a split application:
+Edna Search is a split application with two frontend surfaces in one Next app:
 
 - `src/ct_search/`: Python FastAPI backend for provider routing, spreadsheet preview, research/enrichment runs, and CSV/PDF export.
-- `frontend/`: Next.js 16, React 19, and TypeScript frontend for the operator workbench.
+- `frontend/`: Next.js 16, React 19, and TypeScript frontend.
+  - `/`: public launch page for positioning, proof, and demo conversion.
+  - `/workbench`: operator product surface for upload, routing, review, and export.
 - `tests/`: FastAPI API tests.
 
 Keep Python on the backend. TypeScript is expected and preferred in the frontend.
 
 ## Product Context
 
-This is a commercial SaaS-style research and enrichment tool for placement agents and private-capital teams. The first screen should stay the working product surface, not a marketing landing page.
+This is a commercial SaaS-style research and enrichment tool for placement agents and private-capital teams. Keep the public launch page and working product surface separate: `/` explains and converts, while `/workbench` stays the dense operator workflow.
 
 Core workflow:
 
@@ -53,7 +55,8 @@ The frontend proxies backend calls through `/backend/*` using `frontend/next.con
 - Provider logic belongs in `src/ct_search/providers.py`.
 - API models belong in `src/ct_search/models.py`.
 - Frontend API calls belong in `frontend/src/lib/api.ts`.
-- Main React workspace behavior belongs in `frontend/src/components/Workspace.tsx`.
+- Launch page behavior belongs in `frontend/src/app/page.tsx`.
+- Main React workspace behavior belongs in `frontend/src/components/Workspace.tsx`, mounted from `frontend/src/app/workbench/page.tsx`.
 - Use `lucide-react` icons for UI controls.
 - Do not commit generated folders such as `.venv/`, `.pytest_cache/`, `.ruff_cache/`, `frontend/node_modules/`, `frontend/.next/`, `.playwright-cli/`, or `output/`.
 
@@ -70,6 +73,7 @@ cd frontend && npm run lint && npm run build
 For frontend changes, also do a browser smoke test against:
 
 - Backend: `http://127.0.0.1:8000`
-- Frontend: `http://127.0.0.1:3000`
+- Launch page: `http://127.0.0.1:3000`
+- Workbench: `http://127.0.0.1:3000/workbench`
 
 Check upload/search, provider routing, demo research results, and export buttons when possible.

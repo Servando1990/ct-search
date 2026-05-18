@@ -68,6 +68,7 @@ export default function Home() {
           <a href="#workflow">Workflow</a>
           <a href="#proof">Proof</a>
           <a href="#security">Security</a>
+          <a href="/workbench">Workbench</a>
         </nav>
         <a className="nav-action" href="mailto:hello@controlthrive.com?subject=Edna%20Search%20demo">
           Book demo
@@ -88,8 +89,8 @@ export default function Home() {
               Book demo
               <ArrowRight aria-hidden="true" size={18} />
             </a>
-            <a className="secondary-action" href="#workflow">
-              See workflow
+            <a className="secondary-action" href="/workbench">
+              Open workbench
             </a>
           </div>
         </div>
