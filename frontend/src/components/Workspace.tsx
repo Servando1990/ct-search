@@ -56,60 +56,70 @@ const FALLBACK_PROVIDERS: ProviderPublic[] = [
     label: "Parallel",
     env_keys: ["PARALLEL_API_KEY"],
     strengths: ["cited research", "structured enrichment", "source basis"],
-    estimated_search_cost: 0.006,
-    estimated_row_cost: 0.035,
+    estimated_search_cost: 0.005,
+    estimated_row_cost: 0.025,
     speed_score: 0.78,
     quality_score: 0.94,
     coverage_score: 0.91,
     available: false,
+    best_for: ["cited structured enrichment", "multi-hop research"],
+    tradeoffs: ["higher-cost processors for deep research"],
   },
   {
     id: "brave",
     label: "Brave",
     env_keys: ["BRAVE_API_KEY"],
     strengths: ["fresh web index", "low cost", "fast retrieval"],
-    estimated_search_cost: 0.003,
-    estimated_row_cost: 0.018,
+    estimated_search_cost: 0.005,
+    estimated_row_cost: 0.024,
     speed_score: 0.92,
     quality_score: 0.76,
     coverage_score: 0.82,
     available: false,
+    best_for: ["fast raw web retrieval", "fresh broad web coverage"],
+    tradeoffs: ["not a full enrichment workflow by itself"],
   },
   {
     id: "exa",
     label: "Exa",
     env_keys: ["EXA_API_KEY"],
     strengths: ["semantic search", "company context", "long excerpts"],
-    estimated_search_cost: 0.008,
-    estimated_row_cost: 0.028,
+    estimated_search_cost: 0.007,
+    estimated_row_cost: 0.025,
     speed_score: 0.72,
     quality_score: 0.88,
     coverage_score: 0.84,
     available: false,
+    best_for: ["semantic discovery", "company and people search"],
+    tradeoffs: ["search pricing is higher than simple retrieval"],
   },
   {
     id: "tavily",
     label: "Tavily",
     env_keys: ["TAVILY_API_KEY"],
     strengths: ["general research", "balanced cost", "quick runs"],
-    estimated_search_cost: 0.004,
-    estimated_row_cost: 0.021,
+    estimated_search_cost: 0.008,
+    estimated_row_cost: 0.024,
     speed_score: 0.86,
     quality_score: 0.8,
     coverage_score: 0.8,
     available: false,
+    best_for: ["balanced agent search", "content extraction"],
+    tradeoffs: ["credit costs vary by depth"],
   },
   {
     id: "perplexity",
     label: "Perplexity",
     env_keys: ["PERPLEXITY_API_KEY"],
     strengths: ["answer briefs", "citations", "synthesis"],
-    estimated_search_cost: 0.005,
+    estimated_search_cost: 0.006,
     estimated_row_cost: 0.032,
     speed_score: 0.8,
     quality_score: 0.86,
     coverage_score: 0.78,
     available: false,
+    best_for: ["web-grounded answer synthesis", "citation-backed summaries"],
+    tradeoffs: ["Sonar costs include request and token costs"],
   },
 ];
 
@@ -515,6 +525,29 @@ export function Workspace() {
             </div>
           ) : null}
 
+          {result?.route ? (
+            <div className="advisor-plan" aria-label="Routing advisor plan">
+              <div>
+                <span className="rail-label">Advisor</span>
+                <strong>{formatStrategy(result.route.strategy)}</strong>
+                <p>{result.route.reason}</p>
+              </div>
+              {result.route.steps.length ? (
+                <div className="advisor-steps">
+                  {result.route.steps.map((step) => (
+                    <div key={`${step.role}-${step.provider}`}>
+                      <span>{formatStepRole(step.role)}</span>
+                      <strong>{step.label}</strong>
+                      <small>
+                        {currency(step.estimated_cost)} {step.available ? "live" : "demo"}
+                      </small>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           {error ? <div className="error-banner" role="alert">{error}</div> : null}
           {notice || result?.warnings.length ? (
             <div className="warning-stack" role="status" aria-live="polite">
@@ -726,6 +759,14 @@ function renderCell(column: string, cell: CellValue | ResultRow["citations"] | u
 
 function formatColumnLabel(column: string) {
   return column.replace(/_/g, " ");
+}
+
+function formatStrategy(strategy: string) {
+  return strategy.replace(/_/g, " ");
+}
+
+function formatStepRole(role: string) {
+  return role.replace(/_/g, " ");
 }
 
 function statusLabel(status: RunState) {

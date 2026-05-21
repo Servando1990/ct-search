@@ -7,6 +7,14 @@ from pydantic import BaseModel, Field
 ProviderId = Literal["parallel", "brave", "exa", "tavily", "perplexity"]
 RoutingMode = Literal["best", "cost", "speed", "confidence", "manual"]
 ResearchMode = Literal["search", "enrich"]
+RouteStrategy = Literal[
+    "single_provider",
+    "primary_with_fallback",
+    "primary_with_verification",
+    "retrieve_then_synthesize",
+    "manual",
+]
+RouteStepRole = Literal["primary", "fallback", "verification", "synthesis"]
 
 
 class Evidence(BaseModel):
@@ -44,17 +52,34 @@ class ProviderPublic(BaseModel):
     quality_score: float
     coverage_score: float
     available: bool
+    best_for: list[str] = Field(default_factory=list)
+    tradeoffs: list[str] = Field(default_factory=list)
+
+
+class RouteStep(BaseModel):
+    provider: ProviderId
+    label: str
+    role: RouteStepRole
+    reason: str
+    trigger: str = ""
+    estimated_cost: float
+    available: bool
 
 
 class RouteDecision(BaseModel):
     provider: ProviderId
     label: str
     routing_mode: RoutingMode
+    strategy: RouteStrategy = "single_provider"
     reason: str
     score: float
     estimated_cost: float
     available: bool
     considered: list[dict[str, Any]]
+    steps: list[RouteStep] = Field(default_factory=list)
+    prompt_profile: dict[str, bool] = Field(default_factory=dict)
+    knowledge_version: str = ""
+    knowledge_sources: list[str] = Field(default_factory=list)
 
 
 class ResearchResponse(BaseModel):

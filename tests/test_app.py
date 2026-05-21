@@ -24,6 +24,7 @@ def test_providers_endpoint() -> None:
     providers = response.json()
     assert providers[0]["id"] == "parallel"
     assert "estimated_search_cost" in providers[0]
+    assert "cited structured enrichment" in providers[0]["best_for"]
 
 
 def test_preview_csv() -> None:
@@ -89,3 +90,38 @@ def test_router_honors_manual_provider() -> None:
     decision = choose_provider(request, Settings())
     assert decision.provider == "exa"
     assert decision.available is False
+    assert decision.strategy == "manual"
+
+
+def test_router_advises_verification_for_cited_enrichment() -> None:
+    request = ResearchRequest(
+        mode="enrich",
+        query=(
+            "Enrich placement agent contacts with LinkedIn profiles and recent "
+            "fundraising signals. Cite sources."
+        ),
+        rows=[{"company": "Alpha Capital", "name": "Ada Lane"}],
+        fields=["firm", "role", "linkedin_profile", "recent_signal", "source_notes"],
+        routing_mode="best",
+    )
+    decision = choose_provider(request, Settings())
+    assert decision.provider == "parallel"
+    assert decision.strategy == "primary_with_verification"
+    assert decision.prompt_profile["needs_enrichment"] is True
+    assert decision.prompt_profile["needs_citations"] is True
+    assert decision.steps[0].role == "primary"
+    assert any(step.role == "verification" for step in decision.steps)
+    assert decision.knowledge_version == "2026-05-21"
+
+
+def test_router_uses_speed_fallback_for_fresh_fast_search() -> None:
+    request = ResearchRequest(
+        mode="search",
+        query="fast latest fundraising news for AI infrastructure companies",
+        routing_mode="speed",
+    )
+    decision = choose_provider(request, Settings())
+    assert decision.provider == "brave"
+    assert decision.strategy == "primary_with_fallback"
+    assert decision.prompt_profile["latency_sensitive"] is True
+    assert decision.steps[0].provider == "brave"

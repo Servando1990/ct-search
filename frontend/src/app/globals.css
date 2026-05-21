@@ -1209,6 +1209,72 @@ a:focus-visible {
   white-space: nowrap;
 }
 
+.advisor-plan {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.82rem;
+  border: 1px solid var(--ws-line);
+  border-radius: 8px;
+  background: var(--ws-surface-muted);
+}
+
+.advisor-plan > div:first-child {
+  display: grid;
+  gap: 0.28rem;
+}
+
+.advisor-plan strong {
+  color: var(--ws-ink);
+  font-size: 0.92rem;
+  font-weight: 760;
+}
+
+.advisor-plan p {
+  margin: 0;
+  color: var(--ws-ink-soft);
+  font-size: 0.82rem;
+  line-height: 1.42;
+}
+
+.advisor-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.advisor-steps div {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+  padding: 0.62rem;
+  border: 1px solid var(--ws-line);
+  border-radius: 8px;
+  background: var(--ws-surface-input);
+}
+
+.advisor-steps span,
+.advisor-steps small {
+  overflow: hidden;
+  color: var(--ws-ink-soft);
+  font-size: 0.7rem;
+  font-weight: 720;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.advisor-steps span {
+  text-transform: uppercase;
+}
+
+.advisor-steps strong {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .error-banner,
 .warning-stack {
   display: grid;
@@ -1378,7 +1444,8 @@ a:focus-visible {
   }
 
   .route-tabs,
-  .metric-strip {
+  .metric-strip,
+  .advisor-steps {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1405,7 +1472,8 @@ a:focus-visible {
   }
 
   .route-tabs,
-  .metric-strip {
+  .metric-strip,
+  .advisor-steps {
     grid-template-columns: 1fr;
   }
 }

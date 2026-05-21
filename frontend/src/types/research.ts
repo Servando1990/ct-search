@@ -4,6 +4,15 @@ export type RoutingMode = "best" | "cost" | "speed" | "confidence" | "manual";
 
 export type ResearchMode = "search" | "enrich";
 
+export type RouteStrategy =
+  | "single_provider"
+  | "primary_with_fallback"
+  | "primary_with_verification"
+  | "retrieve_then_synthesize"
+  | "manual";
+
+export type RouteStepRole = "primary" | "fallback" | "verification" | "synthesis";
+
 export type CellValue = string | number | boolean | null;
 
 export type InputRow = Record<string, CellValue>;
@@ -19,6 +28,8 @@ export interface ProviderPublic {
   quality_score: number;
   coverage_score: number;
   available: boolean;
+  best_for: string[];
+  tradeoffs: string[];
 }
 
 export interface Evidence {
@@ -39,6 +50,7 @@ export interface RouteDecision {
   provider: ProviderId;
   label: string;
   routing_mode: RoutingMode;
+  strategy: RouteStrategy;
   reason: string;
   score: number;
   estimated_cost: number;
@@ -52,7 +64,24 @@ export interface RouteDecision {
     speed: number;
     quality: number;
     coverage: number;
+    task_fit?: number;
+    best_for?: string[];
+    tradeoffs?: string[];
   }>;
+  steps: RouteStep[];
+  prompt_profile: Record<string, boolean>;
+  knowledge_version: string;
+  knowledge_sources: string[];
+}
+
+export interface RouteStep {
+  provider: ProviderId;
+  label: string;
+  role: RouteStepRole;
+  reason: string;
+  trigger: string;
+  estimated_cost: number;
+  available: boolean;
 }
 
 export interface ResearchResponse {
