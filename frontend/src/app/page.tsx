@@ -77,7 +77,6 @@ export default function Home() {
 
       <section className="hero-section" aria-labelledby="hero-title">
         <div className="hero-copy">
-          <p className="kicker">Product</p>
           <h1 id="hero-title">Edna Search</h1>
           <p className="hero-claim">Capital formation research, routed and cited.</p>
           <p className="hero-body">
@@ -151,7 +150,6 @@ export default function Home() {
 
       <section className="problem-section" id="workflow" aria-labelledby="problem-title">
         <div className="section-intro">
-          <p className="kicker">Workflow</p>
           <h2 id="problem-title">Research lists break when routing, sources, and exports split apart.</h2>
         </div>
         <div className="problem-list">
@@ -167,7 +165,6 @@ export default function Home() {
 
       <section className="proof-section" id="proof" aria-labelledby="proof-title">
         <div>
-          <p className="kicker">Why Edna Search</p>
           <h2 id="proof-title">One run. One audit trail.</h2>
         </div>
         <p>
@@ -188,7 +185,6 @@ export default function Home() {
 
       <section className="security-section" id="security" aria-labelledby="security-title">
         <div>
-          <p className="kicker">Built for diligence</p>
           <h2 id="security-title">Citations stay attached.</h2>
         </div>
         <div className="security-points">
