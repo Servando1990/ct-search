@@ -28,6 +28,7 @@ import {
 import { compactNumber, currency, displayValue, normalizeField, percent } from "@/lib/format";
 import type {
   CellValue,
+  EvidenceRisk,
   InputRow,
   ProviderId,
   ProviderPublic,
@@ -48,7 +49,7 @@ const DEFAULT_FIELDS = [
   "source_notes",
 ];
 
-const METADATA_COLUMNS = ["confidence", "provider", "citations"] as const;
+const METADATA_COLUMNS = ["confidence", "via", "citations"] as const;
 
 const FALLBACK_PROVIDERS: ProviderPublic[] = [
   {
@@ -64,6 +65,9 @@ const FALLBACK_PROVIDERS: ProviderPublic[] = [
     available: false,
     best_for: ["cited structured enrichment", "multi-hop research"],
     tradeoffs: ["higher-cost processors for deep research"],
+    avg_tokens_per_result: 918,
+    avg_match_rate: 0.72,
+    metrics: [],
   },
   {
     id: "brave",
@@ -78,6 +82,9 @@ const FALLBACK_PROVIDERS: ProviderPublic[] = [
     available: false,
     best_for: ["fast raw web retrieval", "fresh broad web coverage"],
     tradeoffs: ["not a full enrichment workflow by itself"],
+    avg_tokens_per_result: 1100,
+    avg_match_rate: 0.6,
+    metrics: [],
   },
   {
     id: "exa",
@@ -92,6 +99,9 @@ const FALLBACK_PROVIDERS: ProviderPublic[] = [
     available: false,
     best_for: ["semantic discovery", "company and people search"],
     tradeoffs: ["search pricing is higher than simple retrieval"],
+    avg_tokens_per_result: 1300,
+    avg_match_rate: 0.65,
+    metrics: [],
   },
   {
     id: "tavily",
@@ -106,6 +116,9 @@ const FALLBACK_PROVIDERS: ProviderPublic[] = [
     available: false,
     best_for: ["balanced agent search", "content extraction"],
     tradeoffs: ["credit costs vary by depth"],
+    avg_tokens_per_result: 1928,
+    avg_match_rate: 0.62,
+    metrics: [],
   },
   {
     id: "perplexity",
@@ -120,6 +133,9 @@ const FALLBACK_PROVIDERS: ProviderPublic[] = [
     available: false,
     best_for: ["web-grounded answer synthesis", "citation-backed summaries"],
     tradeoffs: ["Sonar costs include request and token costs"],
+    avg_tokens_per_result: 1400,
+    avg_match_rate: 0.62,
+    metrics: [],
   },
 ];
 
@@ -135,6 +151,7 @@ export function Workspace() {
   const [customField, setCustomField] = useState("");
   const [showFields, setShowFields] = useState(false);
   const [routingMode, setRoutingMode] = useState<RoutingMode>("best");
+  const [evidenceRisk, setEvidenceRisk] = useState<EvidenceRisk>("medium");
   const [manualProvider, setManualProvider] = useState<ProviderId>("parallel");
   const [result, setResult] = useState<ResearchResponse | null>(null);
   const [status, setStatus] = useState<RunState>("idle");
@@ -229,6 +246,7 @@ export function Workspace() {
         routing_mode: routingMode,
         provider: routingMode === "manual" ? manualProvider : null,
         max_results: 8,
+        evidence_risk: evidenceRisk,
       };
       setResult(await runResearch(payload));
     } catch (runError) {
@@ -426,6 +444,21 @@ export function Workspace() {
             ))}
           </div>
 
+          <div className="route-tabs" role="group" aria-label="Evidence risk">
+            {(["low", "medium", "high"] satisfies EvidenceRisk[]).map((risk) => (
+              <button
+                className={clsx(evidenceRisk === risk && "is-active")}
+                key={risk}
+                type="button"
+                aria-pressed={evidenceRisk === risk}
+                onClick={() => setEvidenceRisk(risk)}
+                title={evidenceRiskHint(risk)}
+              >
+                {risk} risk
+              </button>
+            ))}
+          </div>
+
           <div className="provider-list" aria-label="Providers">
             {providers.map((provider) => (
               <ProviderTile
@@ -508,10 +541,17 @@ export function Workspace() {
             <div className="metric-strip" aria-label="Run metrics">
               <Metric label="Rows" value={compactNumber(resultRows.length)} icon={<Layers3 size={15} />} />
               <Metric
-                label="Cost"
+                label="Per call"
                 value={currency(result.estimated_cost)}
                 icon={<CircleDollarSign size={15} />}
               />
+              {result.route.estimated_cost_per_grounded_row != null ? (
+                <Metric
+                  label="Per grounded row"
+                  value={currency(result.route.estimated_cost_per_grounded_row)}
+                  icon={<CircleDollarSign size={15} />}
+                />
+              ) : null}
               <Metric
                 label="Mode"
                 value={result.is_demo ? "Demo" : "Live"}
@@ -531,19 +571,44 @@ export function Workspace() {
                 <span className="rail-label">Advisor</span>
                 <strong>{formatStrategy(result.route.strategy)}</strong>
                 <p>{result.route.reason}</p>
+                <div className="advisor-tags" aria-label="Decision-framework signals">
+                  <span>{result.route.job_type ?? "research"}</span>
+                  <span>{formatSourceShape(result.route.source_shape)}</span>
+                  <span>{result.route.evidence_risk} risk</span>
+                  {result.route.freshness_days != null ? (
+                    <span>≤{result.route.freshness_days}d fresh</span>
+                  ) : null}
+                  {result.route.processor_tier ? (
+                    <span
+                      title={result.route.processor_reason}
+                    >{`processor: ${result.route.processor_tier}`}</span>
+                  ) : null}
+                </div>
               </div>
               {result.route.steps.length ? (
                 <div className="advisor-steps">
-                  {result.route.steps.map((step) => (
-                    <div key={`${step.role}-${step.provider}`}>
+                  {result.route.steps.map((step, index) => (
+                    <div key={`${step.role}-${step.provider}-${index}`}>
                       <span>{formatStepRole(step.role)}</span>
                       <strong>{step.label}</strong>
                       <small>
-                        {currency(step.estimated_cost)} {step.available ? "live" : "demo"}
+                        {currency(step.estimated_cost)} call ·{" "}
+                        {step.estimated_cost_per_grounded_row != null
+                          ? `${currency(step.estimated_cost_per_grounded_row)} grounded`
+                          : step.available
+                            ? "live"
+                            : "demo"}
                       </small>
                     </div>
                   ))}
                 </div>
+              ) : null}
+              {result.route.caveats.length ? (
+                <ul className="advisor-caveats" aria-label="Route caveats">
+                  {result.route.caveats.map((caveat) => (
+                    <li key={caveat}>{caveat}</li>
+                  ))}
+                </ul>
               ) : null}
             </div>
           ) : null}
@@ -635,8 +700,38 @@ function ProviderTile({
           {percent(provider.quality_score)}
         </span>
       </span>
+      {provider.metrics?.length ? (
+        <span className="provider-provenance" aria-label="Capability provenance">
+          {provider.metrics.slice(0, 3).map((metric) => {
+            const stale = isMetricStale(metric.expires_at);
+            return (
+              <span
+                key={`${metric.axis}-${metric.source_date}`}
+                className={clsx("provenance-chip", stale && "is-stale")}
+                title={`${metric.axis} · ${metric.notes || metric.source_url}${
+                  stale ? " · prior expired, awaiting recalibration" : ""
+                }`}
+              >
+                <em>{metric.axis}</em>
+                <strong>{percent(metric.score)}</strong>
+                <small>
+                  {metric.origin === "vendor_reported" ? "vendor" : metric.origin}
+                  {stale ? " · stale" : ""}
+                </small>
+              </span>
+            );
+          })}
+        </span>
+      ) : null}
     </button>
   );
+}
+
+function isMetricStale(expiresAt: string): boolean {
+  if (!expiresAt) return false;
+  const expiry = Date.parse(expiresAt);
+  if (Number.isNaN(expiry)) return false;
+  return expiry < Date.now();
 }
 
 function Metric({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
@@ -662,13 +757,29 @@ function ResultsTable({ columns, rows }: { columns: string[]; rows: ResultRow[] 
         return [
           ...dataColumns.map((column) => combined[column] ?? null),
           row.confidence,
-          row.provider,
+          {
+            kind: "attribution" as const,
+            provider: row.provider,
+            stepRole: row.step_role,
+            verified: row.verified,
+            contributingProviders: row.contributing_providers,
+          },
           row.citations,
         ];
       })}
     />
   );
 }
+
+type AttributionCell = {
+  kind: "attribution";
+  provider: string;
+  stepRole: string;
+  verified: boolean;
+  contributingProviders: string[];
+};
+
+type TableCell = CellValue | ResultRow["citations"] | AttributionCell | undefined;
 
 function DataTable({
   columns,
@@ -679,7 +790,7 @@ function DataTable({
   columns: string[];
   compact?: boolean;
   label: string;
-  rows: Array<Array<CellValue | ResultRow["citations"] | undefined>>;
+  rows: Array<Array<TableCell>>;
 }) {
   return (
     <table className={clsx("data-table", compact && "is-compact")}>
@@ -717,7 +828,24 @@ function EmptyBlock({ body, title }: { body?: string; title: string }) {
   );
 }
 
-function renderCell(column: string, cell: CellValue | ResultRow["citations"] | undefined) {
+function renderCell(column: string, cell: TableCell) {
+  if (cell && typeof cell === "object" && !Array.isArray(cell) && "kind" in cell && cell.kind === "attribution") {
+    const others = cell.contributingProviders.filter((p) => p !== cell.provider);
+    return (
+      <span className="attribution-cell" title={`Executed via ${cell.stepRole || "primary"} step`}>
+        <span className="attribution-primary">{cell.provider}</span>
+        {cell.stepRole ? <span className="attribution-role">{cell.stepRole}</span> : null}
+        {cell.verified ? (
+          <span className="attribution-verified" title="Independently corroborated">✓ verified</span>
+        ) : null}
+        {others.length ? (
+          <span className="attribution-others" title="Also contributed">
+            +{others.join(", +")}
+          </span>
+        ) : null}
+      </span>
+    );
+  }
   if (Array.isArray(cell)) {
     if (!cell.length) return <span className="muted-cell">No source</span>;
     return (
@@ -767,6 +895,17 @@ function formatStrategy(strategy: string) {
 
 function formatStepRole(role: string) {
   return role.replace(/_/g, " ");
+}
+
+function formatSourceShape(shape: string) {
+  return shape.replace(/_/g, " ");
+}
+
+function evidenceRiskHint(risk: EvidenceRisk) {
+  if (risk === "low") return "Desk scan — citations optional, fastest providers eligible.";
+  if (risk === "medium")
+    return "Sourcing / enrichment — citations required, balanced providers preferred.";
+  return "Diligence / IC / export — per-field citations + verifier mandatory.";
 }
 
 function statusLabel(status: RunState) {

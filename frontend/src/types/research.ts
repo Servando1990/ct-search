@@ -9,13 +9,57 @@ export type RouteStrategy =
   | "primary_with_fallback"
   | "primary_with_verification"
   | "retrieve_then_synthesize"
-  | "manual";
+  | "manual"
+  | "waterfall";
 
 export type RouteStepRole = "primary" | "fallback" | "verification" | "synthesis";
+
+// PR1 framework primitives — see docs/decision-framework.md
+export type JobType =
+  | "discover"
+  | "enrich"
+  | "research"
+  | "monitor"
+  | "extract"
+  | "brief"
+  | "verify";
+
+export type SourceShape =
+  | "open_web"
+  | "known_url"
+  | "similar_to"
+  | "serp_vertical"
+  | "filings"
+  | "event_stream"
+  | "static_database";
+
+export type EvidenceRisk = "low" | "medium" | "high";
+
+export interface ScaleHint {
+  rows?: number | null;
+  max_budget_usd?: number | null;
+}
 
 export type CellValue = string | number | boolean | null;
 
 export type InputRow = Record<string, CellValue>;
+
+export type CapabilityOrigin =
+  | "vendor_reported"
+  | "internal_eval"
+  | "usage_telemetry"
+  | "operator_override";
+
+export interface CapabilityMetric {
+  axis: string;
+  score: number;
+  origin: CapabilityOrigin;
+  source_url: string;
+  source_date: string;
+  expires_at: string;
+  confidence: number;
+  notes: string;
+}
 
 export interface ProviderPublic {
   id: ProviderId;
@@ -30,6 +74,10 @@ export interface ProviderPublic {
   available: boolean;
   best_for: string[];
   tradeoffs: string[];
+  // PR2 — economics + per-axis provenance
+  avg_tokens_per_result: number;
+  avg_match_rate: number;
+  metrics: CapabilityMetric[];
 }
 
 export interface Evidence {
@@ -44,6 +92,10 @@ export interface ResultRow {
   confidence: number;
   citations: Evidence[];
   provider: string;
+  // PR4 — per-row attribution from the executed plan.
+  step_role: string;
+  verified: boolean;
+  contributing_providers: string[];
 }
 
 export interface RouteDecision {
@@ -72,6 +124,16 @@ export interface RouteDecision {
   prompt_profile: Record<string, boolean>;
   knowledge_version: string;
   knowledge_sources: string[];
+  // PR1 framework signals
+  job_type: JobType | null;
+  source_shape: SourceShape;
+  evidence_risk: EvidenceRisk;
+  freshness_days: number | null;
+  caveats: string[];
+  // PR2 — true plan cost + Parallel processor escalation
+  estimated_cost_per_grounded_row: number | null;
+  processor_tier: string | null;
+  processor_reason: string;
 }
 
 export interface RouteStep {
@@ -82,6 +144,7 @@ export interface RouteStep {
   trigger: string;
   estimated_cost: number;
   available: boolean;
+  estimated_cost_per_grounded_row: number | null;
 }
 
 export interface ResearchResponse {
@@ -94,6 +157,8 @@ export interface ResearchResponse {
   estimated_cost: number;
   is_demo: boolean;
   warnings: string[];
+  // PR3 — link to telemetry row for user_outcome attachment.
+  route_plan_id: string;
 }
 
 export interface PreviewResponse {
@@ -111,4 +176,10 @@ export interface ResearchPayload {
   routing_mode: RoutingMode;
   provider: ProviderId | null;
   max_results: number;
+  // PR1 framework — optional, omitted fields fall back to backend defaults
+  job_type?: JobType | null;
+  source_shape?: SourceShape;
+  evidence_risk?: EvidenceRisk;
+  freshness_days?: number | null;
+  scale_hint?: ScaleHint | null;
 }

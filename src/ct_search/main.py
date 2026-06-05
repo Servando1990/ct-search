@@ -5,6 +5,7 @@ import io
 from pathlib import Path
 from typing import Annotated, Any
 
+import logfire
 import pandas as pd
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,8 +19,18 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 from ct_search.models import ExportRequest, ResearchRequest
 from ct_search.providers import public_providers, run_research
 from ct_search.settings import get_settings
+from ct_search.telemetry import (
+    UserOutcome,
+    configure_logfire,
+    record_user_outcome,
+)
+
+# Logfire — configure once, before FastAPI auto-instrumentation hooks.
+configure_logfire()
 
 app = FastAPI(title="Edna Search", version="0.1.0")
+logfire.instrument_fastapi(app, capture_headers=False)
+logfire.instrument_httpx()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://127.0.0.1:3000", "http://localhost:3000"],
@@ -62,6 +73,24 @@ async def research(request: ResearchRequest):
         raise HTTPException(status_code=400, detail="Provide a search query or upload rows.")
     settings = get_settings()
     return await run_research(request, settings)
+
+
+@app.post("/api/telemetry/outcome")
+async def telemetry_outcome(payload: dict[str, Any]) -> dict[str, Any]:
+    """Attach user accept/reject/export signals to a previously-routed plan.
+
+    Frontend calls this after the user reviews results; the recompute job
+    uses the outcomes to update vendor priors. See docs/decision-framework.md
+    §"Calibration loop".
+    """
+    route_plan_id = payload.get("route_plan_id")
+    if not route_plan_id or not isinstance(route_plan_id, str):
+        raise HTTPException(status_code=400, detail="route_plan_id is required.")
+    outcome = UserOutcome.model_validate(
+        {k: v for k, v in payload.items() if k != "route_plan_id"}
+    )
+    record_user_outcome(route_plan_id, outcome)
+    return {"recorded": True, "route_plan_id": route_plan_id}
 
 
 @app.post("/api/export/csv")
@@ -183,7 +212,7 @@ def _export_columns(request: ExportRequest) -> list[str]:
         for key in [*row.input.keys(), *row.fields.keys()]:
             if key not in columns:
                 columns.append(key)
-    for metadata in ("confidence", "provider", "citations"):
+    for metadata in ("confidence", "via", "verified", "citations"):
         if metadata not in columns:
             columns.append(metadata)
     return columns
@@ -193,9 +222,13 @@ def _flatten_row(row: dict[str, Any], columns: list[str]) -> dict[str, Any]:
     input_values = row.get("input") or {}
     field_values = row.get("fields") or {}
     citations = row.get("citations") or []
+    contributing = row.get("contributing_providers") or []
     flattened = {**input_values, **field_values}
     flattened["confidence"] = row.get("confidence", "")
     flattened["provider"] = row.get("provider", "")
+    flattened["step_role"] = row.get("step_role", "")
+    flattened["verified"] = "yes" if row.get("verified") else ""
+    flattened["via"] = " + ".join(contributing) if contributing else row.get("provider", "")
     flattened["citations"] = " | ".join(
         citation.get("url", "") for citation in citations if citation.get("url")
     )

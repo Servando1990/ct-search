@@ -14,3 +14,6 @@ uploads/
 frontend/.next/
 frontend/node_modules/
 frontend/out/
+
+# TypeScript incremental build cache
+*.tsbuildinfo

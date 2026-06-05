@@ -13,8 +13,50 @@ RouteStrategy = Literal[
     "primary_with_verification",
     "retrieve_then_synthesize",
     "manual",
+    "waterfall",
 ]
 RouteStepRole = Literal["primary", "fallback", "verification", "synthesis"]
+
+# PR1 primitives — see docs/decision-framework.md
+JobType = Literal[
+    "discover", "enrich", "research", "monitor", "extract", "brief", "verify"
+]
+SourceShape = Literal[
+    "open_web",
+    "known_url",
+    "similar_to",
+    "serp_vertical",
+    "filings",
+    "event_stream",
+    "static_database",
+]
+EvidenceRisk = Literal["low", "medium", "high"]
+
+
+class ScaleHint(BaseModel):
+    rows: int | None = None
+    max_budget_usd: float | None = None
+
+
+CapabilityOrigin = Literal[
+    "vendor_reported", "internal_eval", "usage_telemetry", "operator_override"
+]
+
+
+class CapabilityMetric(BaseModel):
+    """A capability score with provenance, expiry, and confidence in the score itself.
+
+    See docs/decision-framework.md — "CapabilityScore" in the data model.
+    """
+
+    axis: str
+    score: float = Field(ge=0.0, le=1.0)
+    origin: CapabilityOrigin = "vendor_reported"
+    source_url: str = ""
+    source_date: str = ""  # ISO date
+    expires_at: str = ""  # ISO date
+    confidence: float = Field(default=0.7, ge=0.0, le=1.0)
+    notes: str = ""
 
 
 class Evidence(BaseModel):
@@ -29,6 +71,10 @@ class ResultRow(BaseModel):
     confidence: float = 0.0
     citations: list[Evidence] = Field(default_factory=list)
     provider: str = ""
+    # PR4 — per-row attribution from the executed plan.
+    step_role: str = ""  # "primary" | "fallback" | "verified" | "synthesized"
+    verified: bool = False  # set when a verifier step corroborated this row
+    contributing_providers: list[str] = Field(default_factory=list)
 
 
 class ResearchRequest(BaseModel):
@@ -39,6 +85,12 @@ class ResearchRequest(BaseModel):
     routing_mode: RoutingMode = "best"
     provider: ProviderId | None = None
     max_results: int = Field(default=8, ge=1, le=25)
+    # PR1 primitives — optional, defaults preserve back-compat
+    job_type: JobType | None = None
+    source_shape: SourceShape = "open_web"
+    evidence_risk: EvidenceRisk = "medium"
+    freshness_days: int | None = Field(default=None, ge=0, le=3650)
+    scale_hint: ScaleHint | None = None
 
 
 class ProviderPublic(BaseModel):
@@ -54,6 +106,10 @@ class ProviderPublic(BaseModel):
     available: bool
     best_for: list[str] = Field(default_factory=list)
     tradeoffs: list[str] = Field(default_factory=list)
+    # PR2 — economics + provenance for cost-per-grounded-row + UI provenance labels
+    avg_tokens_per_result: int = 1100
+    avg_match_rate: float = 0.65
+    metrics: list[CapabilityMetric] = Field(default_factory=list)
 
 
 class RouteStep(BaseModel):
@@ -64,6 +120,8 @@ class RouteStep(BaseModel):
     trigger: str = ""
     estimated_cost: float
     available: bool
+    # PR2 — true cost including downstream tokens & miss-rate adjustment
+    estimated_cost_per_grounded_row: float | None = None
 
 
 class RouteDecision(BaseModel):
@@ -80,6 +138,16 @@ class RouteDecision(BaseModel):
     prompt_profile: dict[str, bool] = Field(default_factory=dict)
     knowledge_version: str = ""
     knowledge_sources: list[str] = Field(default_factory=list)
+    # PR1 — framework signals surfaced on the route plan
+    job_type: JobType | None = None
+    source_shape: SourceShape = "open_web"
+    evidence_risk: EvidenceRisk = "medium"
+    freshness_days: int | None = None
+    caveats: list[str] = Field(default_factory=list)
+    # PR2 — true plan cost (sum of grounded-row cost across steps, with miss-rate decay)
+    estimated_cost_per_grounded_row: float | None = None
+    processor_tier: str | None = None  # lite | base | core | pro (when Parallel-driven)
+    processor_reason: str = ""
 
 
 class ResearchResponse(BaseModel):
@@ -92,6 +160,8 @@ class ResearchResponse(BaseModel):
     estimated_cost: float
     is_demo: bool = False
     warnings: list[str] = Field(default_factory=list)
+    # PR3 — link to telemetry row for user_outcome attachment.
+    route_plan_id: str = ""
 
 
 class ExportRequest(BaseModel):

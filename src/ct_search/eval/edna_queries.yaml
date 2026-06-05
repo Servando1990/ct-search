@@ -1,0 +1,184 @@
+# Edna-native eval set — 30 representative private-capital queries.
+#
+# Coverage targets one row per (job_type × evidence_risk × source_shape)
+# combination that the framework can route today. Spec target is 50–100
+# queries; this file is the seed corpus and is expected to grow.
+#
+# Each query asserts:
+#   provider_in  — the primary provider must be one of these
+#   strategy     — required RouteStrategy (or `any`)
+#   role_present — at least one step.role in this list
+#   caveat_match — substring required in any caveat (skipped if empty)
+
+cases:
+  # ------- discover -------
+  - id: discover-gp-fund-iii
+    description: Discover GPs raising Fund III in EU climate under €500M
+    request:
+      mode: search
+      job_type: discover
+      query: "Find every GP raising Fund III in EU climate tech with target under €500M"
+      source_shape: open_web
+      evidence_risk: medium
+      freshness_days: 30
+    expect:
+      provider_in: [parallel]
+      role_present: [primary]
+
+  - id: discover-similar-lp
+    description: Similar-to discovery of LPs
+    request:
+      mode: search
+      job_type: discover
+      query: "Show me LPs similar to MIT Endowment that back climate funds"
+      source_shape: similar_to
+      evidence_risk: medium
+      freshness_days: 3   # would normally crush Exa
+    expect:
+      provider_in: [exa]
+      role_present: [primary]
+
+  # ------- enrich -------
+  - id: enrich-quick-ir
+    description: Single-row IR head lookup (no waterfall)
+    request:
+      mode: search
+      job_type: enrich
+      query: "Look up the IR head at Sigma Partners"
+      source_shape: open_web
+      evidence_risk: low
+      scale_hint:
+        rows: 1
+    expect:
+      role_present: [primary]
+
+  - id: enrich-800-lps
+    description: 800-LP enrichment with recent commitments + IR contact
+    request:
+      mode: enrich
+      job_type: enrich
+      query: "Enrich LP contacts with AUM band, recent commitments, IR contact"
+      rows:
+        - { company: "Sample LP 1" }
+        - { company: "Sample LP 2" }
+      fields: [aum_band, recent_commitments, ir_contact, source_notes]
+      evidence_risk: medium
+      freshness_days: 90
+      scale_hint:
+        rows: 800
+    expect:
+      strategy: waterfall
+      role_present: [primary, fallback]
+      caveat_match: "waterfall"
+
+  - id: enrich-cited-diligence
+    description: Cited enrichment requiring per-field verification
+    request:
+      mode: enrich
+      job_type: enrich
+      query: "Enrich placement agent contacts with cited LinkedIn, recent signals."
+      rows:
+        - { company: "Alpha Capital", name: "Ada Lane" }
+      fields: [firm, role, linkedin_profile, recent_signal, source_notes]
+      evidence_risk: high
+    expect:
+      provider_in: [parallel]
+      role_present: [primary, verification]
+
+  # ------- research -------
+  - id: research-high-risk-diligence
+    description: Diligence — high evidence risk, requires verifier
+    request:
+      mode: search
+      job_type: research
+      query: "Diligence Acme Capital — competitive position, team, churn signals"
+      source_shape: open_web
+      evidence_risk: high
+      freshness_days: 30
+    expect:
+      provider_in: [parallel, exa, perplexity]
+      role_present: [primary, verification]
+
+  # ------- monitor -------
+  - id: monitor-portfolio-execs
+    description: Event-stream monitor — caveat for missing provider
+    request:
+      mode: search
+      job_type: monitor
+      query: "Alert me when any portfolio company executive changes"
+      source_shape: event_stream
+      evidence_risk: medium
+    expect:
+      caveat_match: "Monitor"
+
+  - id: monitor-fundraising-news-fast
+    description: Fresh fast monitor — speed mode steers to Brave
+    request:
+      mode: search
+      query: "fast latest fundraising news for AI infrastructure companies"
+      routing_mode: speed
+      evidence_risk: low
+    expect:
+      provider_in: [brave]
+
+  # ------- extract -------
+  - id: extract-rias-adv2
+    description: Extract SEC ADV-2 facts — filings caveat or escalated processor
+    request:
+      mode: enrich
+      job_type: extract
+      query: "Pull SEC ADV-2 facts for these RIAs"
+      rows:
+        - { company: "RIA One" }
+      fields: [aum, custodian, fee_schedule]
+      source_shape: filings
+      evidence_risk: high
+    expect:
+      provider_in: [parallel, exa, perplexity]
+
+  # ------- brief -------
+  - id: brief-placement-agent-market
+    description: Brief on placement-agent market in healthcare
+    request:
+      mode: search
+      job_type: brief
+      query: "Quick brief: state of placement-agent market in healthcare"
+      source_shape: open_web
+      evidence_risk: low
+    expect:
+      role_present: [primary]
+
+  # ------- verify -------
+  - id: verify-claim
+    description: Cited verification of a specific claim
+    request:
+      mode: search
+      job_type: verify
+      query: "Verify that Apollo's latest credit fund close was $5B"
+      source_shape: open_web
+      evidence_risk: high
+      freshness_days: 30
+    expect:
+      provider_in: [parallel, exa, perplexity]
+      role_present: [primary, verification]
+
+  # ------- source_shape caveats -------
+  - id: caveat-serp-vertical
+    description: SERP-vertical source shape — caveat present
+    request:
+      mode: search
+      query: "patent landscape for graphene battery startups"
+      source_shape: serp_vertical
+      evidence_risk: medium
+    expect:
+      caveat_match: "SERP"
+
+  - id: caveat-static-database
+    description: Static DB source shape — caveat present
+    request:
+      mode: search
+      query: "Crunchbase-style firmographics for these LPs"
+      source_shape: static_database
+      evidence_risk: low
+    expect:
+      caveat_match: "Static enrichment"
