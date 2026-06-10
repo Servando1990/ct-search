@@ -148,6 +148,7 @@ const FALLBACK_PROVIDERS: ProviderPublic[] = [
 type Phase = "compose" | "running" | "result";
 type RoutePreference = "auto" | "cost" | "speed" | "confidence";
 type VenueChoice = ProviderId | "auto";
+type RiskChoice = EvidenceRisk | "auto";
 
 export function Workspace() {
   const [providers, setProviders] = useState<ProviderPublic[]>(FALLBACK_PROVIDERS);
@@ -163,7 +164,7 @@ export function Workspace() {
   const [fields, setFields] = useState<string[]>(DEFAULT_FIELDS);
   const [customField, setCustomField] = useState("");
   const [preference, setPreference] = useState<RoutePreference>("auto");
-  const [evidenceRisk, setEvidenceRisk] = useState<EvidenceRisk>("medium");
+  const [evidenceRisk, setEvidenceRisk] = useState<RiskChoice>("auto");
   const [venue, setVenue] = useState<VenueChoice>("auto");
   const [tuneOpen, setTuneOpen] = useState(false);
 
@@ -220,11 +221,9 @@ export function Workspace() {
   }, [dropped, result]);
 
   const liveCount = providers.filter((provider) => provider.available).length;
+  const fieldsTuned = fields.join() !== DEFAULT_FIELDS.join();
   const tuned =
-    preference !== "auto" ||
-    venue !== "auto" ||
-    evidenceRisk !== "medium" ||
-    fields.join() !== DEFAULT_FIELDS.join();
+    preference !== "auto" || venue !== "auto" || evidenceRisk !== "auto" || fieldsTuned;
   const canRun = Boolean(query.trim()) || rows.length > 0;
   const normalizedCustomField = normalizeField(customField);
   const canAddCustomField =
@@ -270,15 +269,17 @@ export function Workspace() {
     setElapsed(0);
     reviewed.current = false;
     try {
+      // Untuned values are omitted so the backend intent parser fills them
+      // from the brief. Operator-tuned values always win.
       const payload: ResearchPayload = {
         mode: rows.length ? "enrich" : "search",
         query: query.trim(),
         rows,
-        fields,
+        fields: fieldsTuned ? fields : [],
         routing_mode: venue !== "auto" ? "manual" : preference === "auto" ? "best" : preference,
         provider: venue !== "auto" ? venue : null,
         max_results: 8,
-        evidence_risk: evidenceRisk,
+        ...(evidenceRisk !== "auto" ? { evidence_risk: evidenceRisk } : {}),
       };
       const response = await runResearch(payload);
       setResult(response);
@@ -288,7 +289,7 @@ export function Workspace() {
       setError(errorMessage(runError));
       setPhase("compose");
     }
-  }, [evidenceRisk, fields, preference, query, rows, venue]);
+  }, [evidenceRisk, fields, fieldsTuned, preference, query, rows, venue]);
 
   function handleBriefKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
@@ -438,7 +439,12 @@ export function Workspace() {
                 <div className="composer-run">
                   <span className={clsx("route-flag", tuned && "is-tuned")}>
                     {tuned
-                      ? ["Tuned", preference !== "auto" ? preference : null, venueLabel]
+                      ? [
+                          "Tuned",
+                          preference !== "auto" ? preference : null,
+                          evidenceRisk !== "auto" ? `${evidenceRisk} risk` : null,
+                          venueLabel,
+                        ]
                           .filter(Boolean)
                           .join(" · ")
                       : "Auto route"}
@@ -465,8 +471,11 @@ export function Workspace() {
 
             {rows.length ? (
               <p className="returns-line">
-                Returns {fields.slice(0, 4).map(formatColumnLabel).join(" · ")}
-                {fields.length > 4 ? ` · +${fields.length - 4} more` : ""}
+                {fieldsTuned
+                  ? `Returns ${fields.slice(0, 4).map(formatColumnLabel).join(" · ")}${
+                      fields.length > 4 ? ` · +${fields.length - 4} more` : ""
+                    }`
+                  : "Returned fields: auto — Edna picks them from the brief"}
                 <button type="button" onClick={() => setTuneOpen(true)}>
                   Edit fields
                 </button>
@@ -497,7 +506,7 @@ export function Workspace() {
                   onClick={() => {
                     setPreference("auto");
                     setVenue("auto");
-                    setEvidenceRisk("medium");
+                    setEvidenceRisk("auto");
                     setFields(DEFAULT_FIELDS);
                   }}
                 >
@@ -530,7 +539,7 @@ export function Workspace() {
                 <div className="tune-section">
                   <span className="tune-label">Evidence risk</span>
                   <div className="seg" role="group" aria-label="Evidence risk">
-                    {(["low", "medium", "high"] satisfies EvidenceRisk[]).map((risk) => (
+                    {(["auto", "low", "medium", "high"] satisfies RiskChoice[]).map((risk) => (
                       <button
                         key={risk}
                         type="button"
@@ -757,7 +766,9 @@ function ExecutionReport({ route }: { route: RouteDecision }) {
           {route.evidence_risk} risk
           {route.freshness_days != null ? ` · ≤${route.freshness_days}d fresh` : ""}
           {route.processor_tier ? ` · processor ${route.processor_tier}` : ""}
+          {` · signals ${formatIntentOrigin(route.intent_origin)}`}
         </p>
+        {route.intent_note ? <p className="report-intent">“{route.intent_note}”</p> : null}
         {route.caveats.length ? (
           <ul className="report-caveats" aria-label="Route caveats">
             {route.caveats.map((caveat) => (
@@ -981,7 +992,14 @@ function formatLabel(value: string) {
   return value.replace(/_/g, " ");
 }
 
-function evidenceRiskHint(risk: EvidenceRisk) {
+function formatIntentOrigin(origin: RouteDecision["intent_origin"]) {
+  if (origin === "operator") return "set by you";
+  if (origin === "llm") return "read from the brief";
+  return "keyword fallback";
+}
+
+function evidenceRiskHint(risk: RiskChoice) {
+  if (risk === "auto") return "Edna reads the brief and sets the risk level — diligence language escalates it.";
   if (risk === "low") return "Desk scan — citations optional, fastest venues eligible.";
   if (risk === "medium") return "Sourcing — citations required, balanced venues preferred.";
   return "Diligence / IC — per-field citations and an independent verifier are mandatory.";

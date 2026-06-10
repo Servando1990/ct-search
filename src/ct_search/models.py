@@ -31,6 +31,9 @@ SourceShape = Literal[
     "static_database",
 ]
 EvidenceRisk = Literal["low", "medium", "high"]
+# How the routing primitives were filled: set by the operator, inferred by the
+# LLM intent parser (intent.py), or left to the keyword heuristics.
+IntentOrigin = Literal["operator", "llm", "heuristic"]
 
 
 class ScaleHint(BaseModel):
@@ -85,10 +88,11 @@ class ResearchRequest(BaseModel):
     routing_mode: RoutingMode = "best"
     provider: ProviderId | None = None
     max_results: int = Field(default=8, ge=1, le=25)
-    # PR1 primitives — optional, defaults preserve back-compat
+    # PR1 primitives — optional; None/default means "infer" (intent.py), and
+    # the router treats a missing evidence_risk as "medium".
     job_type: JobType | None = None
     source_shape: SourceShape = "open_web"
-    evidence_risk: EvidenceRisk = "medium"
+    evidence_risk: EvidenceRisk | None = None
     freshness_days: int | None = Field(default=None, ge=0, le=3650)
     scale_hint: ScaleHint | None = None
 
@@ -144,6 +148,9 @@ class RouteDecision(BaseModel):
     evidence_risk: EvidenceRisk = "medium"
     freshness_days: int | None = None
     caveats: list[str] = Field(default_factory=list)
+    # Intent parsing — how the framework signals above were filled.
+    intent_origin: IntentOrigin = "heuristic"
+    intent_note: str = ""
     # PR2 — true plan cost (sum of grounded-row cost across steps, with miss-rate decay)
     estimated_cost_per_grounded_row: float | None = None
     processor_tier: str | None = None  # lite | base | core | pro (when Parallel-driven)

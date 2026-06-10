@@ -10,6 +10,7 @@ from typing import Any
 
 import httpx
 
+from ct_search.intent import resolve_intent
 from ct_search.models import (
     Evidence,
     JobType,
@@ -169,6 +170,10 @@ def public_providers(settings: Settings) -> list[ProviderPublic]:
 
 
 def choose_provider(request: ResearchRequest, settings: Settings) -> RouteDecision:
+    # Direct callers (eval harness, tests) may leave evidence_risk unset;
+    # run_research resolves it via intent.py before getting here.
+    if request.evidence_risk is None:
+        request = request.model_copy(update={"evidence_risk": "medium"})
     specs = list(PROVIDERS)
     by_id = {spec.id: spec for spec in specs}
     rows = max(len(request.rows), 1)
@@ -368,7 +373,12 @@ async def run_research(request: ResearchRequest, settings: Settings) -> Research
     Each step's outcome is recorded as a `StepResult` in telemetry.
     """
     started = time.perf_counter()
+    # Fill unset routing primitives from the brief (LLM when a key is present,
+    # keyword heuristics otherwise). Operator-set values always win.
+    request, intent_origin, intent_note = await resolve_intent(request, settings)
     route = choose_provider(request, settings)
+    route.intent_origin = intent_origin
+    route.intent_note = intent_note
     primary_spec = _spec(route.provider)
     route_plan_id = new_route_plan_id()
     warnings: list[str] = []

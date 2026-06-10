@@ -137,7 +137,7 @@ def build_request_shape(request: ResearchRequest, rows: int, fields: int) -> Req
     return RequestShape(
         job_type=request.job_type,
         source_shape=request.source_shape,
-        evidence_risk=request.evidence_risk,
+        evidence_risk=request.evidence_risk or "medium",
         freshness_days=request.freshness_days,
         rows=rows,
         fields_count=fields,

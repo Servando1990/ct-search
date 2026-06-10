@@ -46,6 +46,8 @@ Without API keys, the app runs in demo mode so the workflow is still testable. A
 
 The provider layer is inspired by `pi-websearch`: a small normalized interface, a provider registry, and a router that can auto-select from available credentials. Edna Search extends that idea for a SaaS product by scoring providers on estimated cost, speed, coverage, and confidence.
 
+The router's inputs are zero-config: an LLM intent parser (`src/ct_search/intent.py`, Claude structured outputs) reads the brief and fills `job_type`, `source_shape`, `evidence_risk`, `freshness_days`, and the returned fields. Operator-tuned values always win, and without `ANTHROPIC_API_KEY` the router falls back to keyword heuristics so demo mode needs no key.
+
 Implemented adapters:
 
 - Parallel Search API through the Python SDK with REST fallback.

@@ -774,6 +774,13 @@
   line-height: 1.7;
 }
 
+.report-intent {
+  margin: 0.55rem 0 0;
+  color: var(--ws-ink-muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
 .report-caveats {
   display: grid;
   gap: 0.4rem;

@@ -35,6 +35,10 @@ export type SourceShape =
 
 export type EvidenceRisk = "low" | "medium" | "high";
 
+// How the routing primitives were filled — operator, LLM intent parser, or
+// keyword heuristics.
+export type IntentOrigin = "operator" | "llm" | "heuristic";
+
 export interface ScaleHint {
   rows?: number | null;
   max_budget_usd?: number | null;
@@ -130,6 +134,9 @@ export interface RouteDecision {
   evidence_risk: EvidenceRisk;
   freshness_days: number | null;
   caveats: string[];
+  // Intent parsing — how the framework signals were filled.
+  intent_origin: IntentOrigin;
+  intent_note: string;
   // PR2 — true plan cost + Parallel processor escalation
   estimated_cost_per_grounded_row: number | null;
   processor_tier: string | null;

@@ -169,10 +169,12 @@ ResearchRequest (job_type, source_shape, evidence_risk, freshness_days, scale_hi
 - **Two surfaces, one system.** Landing converts (positioning + product proof); workbench
   operates (dense, table-first). Both share one green-tinted OKLCH design system with no
   SaaS-cream, no nested cards, no AI-template scaffolding.
-- **Deliberate gaps remain, by choice.** `source_shape`/`freshness_days`/`scale_hint` are
-  backend-only (no operator control yet); SerpAPI/Extract/Monitor providers aren't wired (fail
-  loudly with caveats); the UI doesn't auto-POST outcomes yet; eval set is 13 cases vs a 50–100
-  target; non-Parallel enrichment is citation-capturing, not arbitrary-field extraction.
+- **Deliberate gaps remain, by choice.** SerpAPI/Extract/Monitor providers aren't wired (fail
+  loudly with caveats); eval set is 13 cases vs a 50–100 target; non-Parallel enrichment is
+  citation-capturing, not arbitrary-field extraction. Two earlier gaps have since closed:
+  the workbench now POSTs accept/reject/export outcomes to the calibration loop, and an LLM
+  intent parser (`intent.py`) fills `job_type`/`source_shape`/`evidence_risk`/`freshness_days`/
+  fields from the brief (keyword heuristics remain the no-key fallback).
 
 ## Where to go next in the codebase
 
