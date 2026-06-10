@@ -17,3 +17,6 @@ frontend/out/
 
 # TypeScript incremental build cache
 *.tsbuildinfo
+
+# Claude Code user-local settings
+.claude/settings.local.json

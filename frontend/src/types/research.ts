@@ -168,6 +168,14 @@ export interface PreviewResponse {
   rows: InputRow[];
 }
 
+// PR3 — user outcome signals attached to a route plan for prior recalibration.
+export interface OutcomePayload {
+  accepted_rows?: number | null;
+  rejected_rows?: number | null;
+  exported?: boolean;
+  edited_fields?: number | null;
+}
+
 export interface ResearchPayload {
   mode: ResearchMode;
   query: string;

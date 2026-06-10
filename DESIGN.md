@@ -115,7 +115,9 @@ components:
 
 Edna Search should feel like a precise capital-markets product launch, not raw internal tooling. The page is light, minimal, confident, and product-led: a direct hero claim, a visible product proof surface, tight provider credibility, and a short narrative about routing, citations, and exports.
 
-The reference triangle is deliberate: Linear for density, typography, crisp figures, and control ergonomics; Lightfield for minimal product language and systems-minded primitives; Rogo for private-capital language, institutional trust, and finance-specific positioning.
+The reference set is deliberate: Linear for density, typography, crisp figures, and control ergonomics; Lightfield for minimal product language and systems-minded primitives; Rogo for private-capital language, institutional trust, and finance-specific positioning; Modal for technical confidence and mono-figure precision; Amp Code for editorial restraint and opinionated product language.
+
+The workbench is **the routing desk** — smart order routing as the product metaphor. The operator writes the brief (the ticket), the router plans the route across venues, and the run comes back as an execution report plus a reviewable ledger of cited rows. Prompt-first, zero pre-run configuration; tuning is progressive disclosure.
 
 The system rejects generic AI-chat aesthetics, oversized SaaS heroes, neon gradients, glassmorphism, decorative card grids, noisy chrome, and hidden provider logic. The first screen is the launch proof: product claim, demo CTA, product frame, and provider credibility.
 
@@ -230,9 +232,15 @@ Edna Search is flat by default. Depth comes from ruled borders, tonal layering, 
 - **Style:** The public page uses a minimal sticky top navigation with brand, section anchors, and a single demo CTA.
 - **Mobile Treatment:** Hide section anchors and keep brand plus demo CTA visible.
 
-### Signature Component
+### Signature Components
 
-The product proof frame is the center of gravity. It should show the workflow in miniature: brief, route, cost, confidence, provider, and cited rows. It is a launch-page visual, not the full app shell.
+**Launch page — the product proof frame.** It shows the workflow in miniature: brief, route, cost, confidence, venue, and cited rows. It is a launch-page visual, not the full app shell.
+
+**Workbench — the composer.** One bordered surface: an auto-growing brief field, a list-attach affordance, the auto-route flag, and the run control. Nothing else is required before running. Tuning (optimize-for, evidence risk, venue override, returned fields) lives behind a single quiet disclosure beneath it.
+
+**Workbench — the execution report.** A full-width ruled band, not a card. Left: strategy, plain-English reason, mono framework signals, amber caveats. Right: the step rail — each route step as a diamond marker (forest primary, brass fallback, blue verifier, ink synthesis), venue name, reason, and right-aligned mono costs. Venue scores and provenance sit in a disclosure beneath. This band is the product's thesis rendered as UI: the route is the star, shown after the run as explanation rather than before it as configuration.
+
+**Workbench — the ledger.** The results table stays dense and table-first: sticky uppercase headers, mono confidence figures, attribution chips, blue source links, and a hover-revealed drop/restore toggle per row that feeds outcome telemetry back to the router.
 
 ## 6. Do's and Don'ts
 

@@ -35,8 +35,8 @@ const features = [
   },
   {
     icon: <Route aria-hidden="true" size={20} />,
-    title: "Provider routing",
-    body: "Route by best fit, cost, speed, confidence, or a manual provider choice.",
+    title: "Failure-cost routing",
+    body: "The router plans primary, fallback, and verifier steps from what a wrong answer costs — not vendor brand.",
   },
   {
     icon: <BadgeCheck aria-hidden="true" size={20} />,
@@ -78,10 +78,11 @@ export default function Home() {
       <section className="hero-section" aria-labelledby="hero-title">
         <div className="hero-copy">
           <h1 id="hero-title">Edna Search</h1>
-          <p className="hero-claim">Capital formation research, routed and cited.</p>
+          <p className="hero-claim">Smart order routing, for research.</p>
           <p className="hero-body">
-            Upload a contact list or write a brief. Edna Search routes the run, returns sourced
-            fields, and exports rows your team can defend.
+            Write a brief or attach a list. Edna plans the route — primary, fallback, verifier —
+            across five search venues and returns cited, confidence-scored rows, with cost and
+            reasoning in the open.
           </p>
           <div className="hero-actions">
             <a className="primary-action" href="mailto:hello@controlthrive.com?subject=Edna%20Search%20demo">
@@ -97,7 +98,7 @@ export default function Home() {
         <div className="product-frame" aria-label="Edna Search product preview">
           <div className="frame-bar">
             <span>new run</span>
-            <strong>best route</strong>
+            <strong>auto route</strong>
           </div>
           <div className="frame-grid">
             <div className="run-brief">
@@ -106,12 +107,12 @@ export default function Home() {
             </div>
             <div className="route-stack">
               <div>
-                <span>Provider</span>
-                <strong>Parallel</strong>
+                <span>Route</span>
+                <strong>Parallel → Exa verify</strong>
               </div>
               <div>
-                <span>Cost</span>
-                <strong>$0.034</strong>
+                <span>Per grounded row</span>
+                <strong>$0.052</strong>
               </div>
               <div>
                 <span>Confidence</span>
@@ -168,8 +169,9 @@ export default function Home() {
           <h2 id="proof-title">One run. One audit trail.</h2>
         </div>
         <p>
-          The workbench keeps provider choice, confidence, citations, and export shape in the same
-          place, so every enriched row can be reviewed before it leaves the product.
+          The workbench keeps the route, confidence, citations, and export shape in the same
+          place, so every enriched row can be reviewed — and any row dropped — before it leaves
+          the product.
         </p>
       </section>
 

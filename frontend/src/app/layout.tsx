@@ -2,10 +2,11 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
 import "./globals.css";
+import "./desk.css";
 
 export const metadata: Metadata = {
   title: "Edna Search",
-  description: "Capital formation research, routed and cited.",
+  description: "Smart order routing for private-capital research.",
   icons: {
     icon: "/icon.svg",
   },

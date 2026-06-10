@@ -12,7 +12,7 @@ The core job is to move from raw contacts or a natural-language research brief t
 
 ## Product Purpose
 
-Edna Search is a Python-first research and enrichment workbench for capital formation teams. It lets operators upload CSV/XLSX contact lists or describe a natural-language search, route the job to the best provider by fit, cost, speed, confidence, or manual choice, then export cited results as CSV or PDF.
+Edna Search is a Python-first research and enrichment workbench for capital formation teams. The operator writes a natural-language brief or attaches a CSV/XLSX contact list; the router plans the run automatically — venue, fallbacks, verification — and returns cited, confidence-scored results exportable as CSV or PDF. Routing preference, evidence risk, and venue override stay one click away, never required.
 
 Success means users can trust the provenance of enriched data, compare provider tradeoffs quickly, and return to their spreadsheet or CRM with cleaner rows and fewer unanswered questions.
 
@@ -21,7 +21,7 @@ Success means users can trust the provenance of enriched data, compare provider 
 The repo keeps two surfaces in the same Next.js app:
 
 - `/` is the public launch page. It should position Edna Search, show product proof, and drive demo demand.
-- `/workbench` is the product workbench. It should stay dense, table-first, and focused on upload, provider routing, cited review, and export.
+- `/workbench` is the routing desk. It is prompt-first: one composer (brief + optional list attach), automatic routing by default, an execution report that explains the route after the run, dense cited review, and export. Tuning controls live behind progressive disclosure.
 
 Do not fold launch-page positioning copy into the operator workflow, and do not turn the public homepage into raw internal tooling.
 
@@ -36,6 +36,8 @@ Reference points:
 - Linear for density, typography, crisp figures, and control ergonomics.
 - Lightfield for minimal product language and a systems-minded approach to shared objects and primitives.
 - Rogo for private-capital language, institutional trust, and finance-specific positioning.
+- Modal for technical confidence and mono-figure precision around costs and runs.
+- Amp Code for editorial restraint and opinionated, confident product language.
 
 ## Anti-references
 
@@ -50,7 +52,7 @@ Do not hide provider choice, confidence, citations, warnings, or export affordan
 ## Design Principles
 
 - Make the spreadsheet the center of gravity: every flow should lead toward cleaner rows, cited fields, and exportable outputs.
-- Treat provider choice as an operator control, not a hidden implementation detail.
+- Default to automatic routing: the operator briefs, the router decides. Keep the route fully inspectable after the run — venue, steps, cost, confidence, citations — and keep tuning one click away, never required.
 - Keep the interface credible for financial professionals: concise copy, compact controls, strong alignment, and visible audit trails.
 - Prefer progressive disclosure over wizardry: simple defaults, deeper routing and cost controls nearby.
 - Design for repeated use: stable tables, predictable controls, and exports that are always within reach.

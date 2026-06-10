@@ -1,4 +1,5 @@
 import type {
+  OutcomePayload,
   PreviewResponse,
   ProviderPublic,
   ResearchPayload,
@@ -34,6 +35,20 @@ export async function runResearch(payload: ResearchPayload): Promise<ResearchRes
     body: JSON.stringify(payload),
   });
   return readJson<ResearchResponse>(response);
+}
+
+export async function postOutcome(routePlanId: string, outcome: OutcomePayload): Promise<void> {
+  // Calibration signal, not user-facing — failures must never disturb the run.
+  try {
+    await fetch(`${API_BASE}/api/telemetry/outcome`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ route_plan_id: routePlanId, ...outcome }),
+      keepalive: true,
+    });
+  } catch {
+    // Telemetry is best-effort.
+  }
 }
 
 export async function exportResults(
