@@ -11,7 +11,12 @@ class Settings(BaseSettings):
     exa_api_key: str | None = None
     tavily_api_key: str | None = None
     perplexity_api_key: str | None = None
-    ct_search_live_enrichment: bool = False
+    # Live per-row enrichment is on by default, guarded by the run budget cap
+    # below (set to 0/false to force demo enrichment regardless of keys).
+    ct_search_live_enrichment: bool = True
+    # Per-run spend ceiling: steps beyond the primary are skipped, and live
+    # enrichment falls back to demo, once estimates exceed this.
+    ct_search_max_run_budget_usd: float = 2.0
     # LLM intent parsing — maps the brief to routing primitives. Falls back to
     # keyword heuristics when unset, so demo mode needs no key.
     anthropic_api_key: str | None = None

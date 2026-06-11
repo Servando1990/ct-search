@@ -5,6 +5,7 @@ import hashlib
 import json
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -362,7 +363,11 @@ def _apply_framework_filters(
     return candidates
 
 
-async def run_research(request: ResearchRequest, settings: Settings) -> ResearchResponse:
+async def run_research(
+    request: ResearchRequest,
+    settings: Settings,
+    on_event: Callable[[str, dict[str, Any]], None] | None = None,
+) -> ResearchResponse:
     """Run research by executing the route plan end-to-end.
 
     PR4 — this walks `route.steps` in order:
@@ -371,7 +376,22 @@ async def run_research(request: ResearchRequest, settings: Settings) -> Research
       verify   → re-run on low-confidence rows; mark verified on agreement
       synthesize → produce a bundled brief from grounded rows
     Each step's outcome is recorded as a `StepResult` in telemetry.
+
+    `on_event(kind, payload)` receives progress as the plan executes
+    (intent.resolved, route.planned, step.started/finished, budget.capped) so
+    async runs can stream it to the workbench. Steps beyond the primary are
+    skipped once their estimated cost would push the run past
+    CT_SEARCH_MAX_RUN_BUDGET_USD.
     """
+
+    def emit(kind: str, payload: dict[str, Any]) -> None:
+        if on_event is None:
+            return
+        try:
+            on_event(kind, payload)
+        except Exception:  # noqa: BLE001 — a broken subscriber must not sink the run
+            pass
+
     started = time.perf_counter()
     # Fill unset routing primitives from the brief (LLM when a key is present,
     # keyword heuristics otherwise). Operator-set values always win.
@@ -379,6 +399,32 @@ async def run_research(request: ResearchRequest, settings: Settings) -> Research
     route = choose_provider(request, settings)
     route.intent_origin = intent_origin
     route.intent_note = intent_note
+    emit(
+        "intent.resolved",
+        {
+            "origin": intent_origin,
+            "note": intent_note,
+            "job_type": route.job_type,
+            "source_shape": route.source_shape,
+            "evidence_risk": route.evidence_risk,
+            "freshness_days": route.freshness_days,
+        },
+    )
+    emit(
+        "route.planned",
+        {
+            "strategy": route.strategy,
+            "provider": route.provider,
+            "label": route.label,
+            "reason": route.reason,
+            "estimated_cost": route.estimated_cost,
+            "estimated_cost_per_grounded_row": route.estimated_cost_per_grounded_row,
+            "steps": [
+                {"role": step.role, "provider": step.provider, "label": step.label}
+                for step in route.steps
+            ],
+        },
+    )
     primary_spec = _spec(route.provider)
     route_plan_id = new_route_plan_id()
     warnings: list[str] = []
@@ -392,22 +438,52 @@ async def run_research(request: ResearchRequest, settings: Settings) -> Research
         else ["title", "url", "summary", "published_date"]
     )
 
-    for step in route.steps:
+    budget = settings.ct_search_max_run_budget_usd
+    spent = 0.0
+
+    for index, step in enumerate(route.steps):
+        # The cap gates live spend only — demo steps are free, and skipping
+        # them would gut the no-key walkthrough.
+        step_live = _spec(step.provider).available(settings)
+        if step.role != "primary" and step_live and spent + step.estimated_cost > budget:
+            warnings.append(
+                f"Run budget cap reached (${budget:.2f}, CT_SEARCH_MAX_RUN_BUDGET_USD): "
+                f"skipped the {step.role} step on {step.label} and any remaining steps."
+            )
+            emit(
+                "budget.capped",
+                {
+                    "budget_usd": budget,
+                    "spent_usd": round(spent, 4),
+                    "skipped_role": step.role,
+                    "skipped_provider": step.provider,
+                },
+            )
+            break
+
         step_spec = _spec(step.provider)
         step_started = time.perf_counter()
         step_error: str | None = None
         step_rows: list[ResultRow] = []
+        emit(
+            "step.started",
+            {"index": index, "role": step.role, "provider": step.provider, "label": step.label},
+        )
 
         try:
             if step.role == "primary":
                 step_rows = await _execute_primary(step_spec, request, settings)
                 _tag_rows(step_rows, role="primary")
                 rows = step_rows
-                if not step_spec.available(settings) or (
-                    request.mode == "enrich"
-                    and _enrichment_is_demo(settings, step_spec, request)
-                ):
+                demo_reason = (
+                    _enrichment_demo_reason(settings, step_spec, len(request.rows))
+                    if request.mode == "enrich"
+                    else None
+                )
+                if not step_spec.available(settings) or demo_reason is not None:
                     is_demo = True
+                    if demo_reason is not None and step_spec.available(settings):
+                        warnings.append(demo_reason)
 
             elif step.role == "fallback":
                 if request.mode == "search":
@@ -468,6 +544,8 @@ async def run_research(request: ResearchRequest, settings: Settings) -> Research
                 is_demo = True
 
         step_elapsed_ms = round((time.perf_counter() - step_started) * 1000)
+        if step_live:
+            spent += step.estimated_cost
         step_results.append(
             StepResult(
                 provider=step.provider,
@@ -481,6 +559,18 @@ async def run_research(request: ResearchRequest, settings: Settings) -> Research
                 low_confidence_rate=_low_confidence_rate(step_rows),
                 error_type=step_error,
             )
+        )
+        emit(
+            "step.finished",
+            {
+                "index": index,
+                "role": step.role,
+                "provider": step.provider,
+                "label": step.label,
+                "latency_ms": step_elapsed_ms,
+                "returned_rows": len(step_rows),
+                "error_type": step_error,
+            },
         )
 
     if is_demo:
@@ -825,12 +915,7 @@ async def _run_enrichment(
     if not rows_to_use:
         return []
 
-    if (
-        spec.id == "parallel"
-        and spec.available(settings)
-        and settings.ct_search_live_enrichment
-        and len(rows_to_use) <= 5
-    ):
+    if spec.id == "parallel" and _enrichment_demo_reason(settings, spec, len(rows_to_use)) is None:
         return await _parallel_task_enrichment(request, settings, target_rows=rows_to_use)
     if spec.available(settings) and spec.id != "parallel":
         # PR4 — non-Parallel enrichment uses targeted per-row search +
@@ -1857,13 +1942,26 @@ def _plan_cost_per_grounded_row(
     return round(total, 5)
 
 
-def _enrichment_is_demo(settings: Settings, spec: ProviderSpec, request: ResearchRequest) -> bool:
-    return not (
-        spec.id == "parallel"
-        and spec.available(settings)
-        and settings.ct_search_live_enrichment
-        and len(request.rows) <= 5
-    )
+def _enrichment_demo_reason(
+    settings: Settings, spec: ProviderSpec, row_count: int
+) -> str | None:
+    """None when live Task enrichment may run; otherwise why it falls to demo.
+
+    Live enrichment is on by default and guarded by the run budget instead of
+    a fixed row cap — at the default $2.00 budget that is roughly 80 rows.
+    """
+    if spec.id != "parallel" or not spec.available(settings):
+        return "Parallel credentials are not configured."
+    if not settings.ct_search_live_enrichment:
+        return "Live enrichment is disabled (CT_SEARCH_LIVE_ENRICHMENT=0)."
+    estimated = spec.estimated_row_cost * max(row_count, 1)
+    if estimated > settings.ct_search_max_run_budget_usd:
+        return (
+            f"Estimated enrichment cost ${estimated:.2f} exceeds the "
+            f"${settings.ct_search_max_run_budget_usd:.2f} run budget "
+            "(CT_SEARCH_MAX_RUN_BUDGET_USD); returning demo rows instead."
+        )
+    return None
 
 
 def _spec(provider_id: ProviderId) -> ProviderSpec:
