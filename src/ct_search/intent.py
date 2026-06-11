@@ -145,6 +145,10 @@ async def resolve_intent(
 
     signals = await infer_intent(request, settings)
     updates: dict[str, object] = {}
+    # Deterministic minimum even without the LLM: a brief that names URLs is a
+    # known_url job — the extraction route depends on this shape.
+    if signals is None and open_slots["source_shape"] and "http" in request.query:
+        updates["source_shape"] = "known_url"
     if signals is not None:
         if open_slots["job_type"]:
             updates["job_type"] = signals.job_type

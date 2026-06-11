@@ -913,6 +913,15 @@ async def _run_search(
 ) -> list[ResultRow]:
     if not spec.available(settings):
         return _demo_search(request, spec)
+    # Extraction route: when the brief names URLs and the shape says so,
+    # extract-capable venues pull the pages instead of searching for them.
+    if request.source_shape == "known_url":
+        urls = _extract_urls(request.query)
+        if urls:
+            if spec.id == "tavily":
+                return await _tavily_extract(urls, request, settings)
+            if spec.id == "exa":
+                return await _exa_contents(urls, request, settings)
     if spec.id == "parallel":
         return await _parallel_search(request, settings)
     if spec.id == "brave":
@@ -1083,8 +1092,11 @@ async def _tavily_search(request: ResearchRequest, settings: Settings) -> list[R
 
 
 async def _perplexity_search(request: ResearchRequest, settings: Settings) -> list[ResultRow]:
+    # Deep-research profiles escalate to sonar-pro (multi-hop grounding);
+    # plain lookups stay on the cheaper sonar.
+    model = "sonar-pro" if _prompt_profile(request)["needs_deep_research"] else "sonar"
     payload = {
-        "model": "sonar",
+        "model": model,
         "messages": [{"role": "user", "content": request.query}],
     }
     async with httpx.AsyncClient(timeout=50) as client:
@@ -1117,6 +1129,90 @@ async def _perplexity_search(request: ResearchRequest, settings: Settings) -> li
             provider="perplexity",
         )
     ]
+
+
+# --- Extraction (known_url) --------------------------------------------------
+
+_URL_PATTERN = re.compile(r"https?://[^\s)\]}>\"']+")
+
+
+def _extract_urls(text: str) -> list[str]:
+    """URLs named in the brief, deduped, capped to keep extract calls bounded."""
+    urls = [url.rstrip(".,;") for url in _URL_PATTERN.findall(text or "")]
+    return list(dict.fromkeys(urls))[:10]
+
+
+async def _tavily_extract(
+    urls: list[str], request: ResearchRequest, settings: Settings
+) -> list[ResultRow]:
+    """Tavily Extract — pull page content for URLs named in the brief."""
+    async with httpx.AsyncClient(timeout=45) as client:
+        response = await client.post(
+            "https://api.tavily.com/extract",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {settings.tavily_api_key or ''}",
+            },
+            json={"urls": urls},
+        )
+        response.raise_for_status()
+        data = response.json()
+    return _extract_results_to_rows(
+        [
+            {"url": item.get("url", ""), "text": item.get("raw_content", "")}
+            for item in data.get("results", [])
+        ],
+        provider="tavily",
+    )
+
+
+async def _exa_contents(
+    urls: list[str], request: ResearchRequest, settings: Settings
+) -> list[ResultRow]:
+    """Exa /contents — extraction fallback when Tavily is not connected."""
+    async with httpx.AsyncClient(timeout=45) as client:
+        response = await client.post(
+            "https://api.exa.ai/contents",
+            headers={"Content-Type": "application/json", "x-api-key": settings.exa_api_key or ""},
+            json={"urls": urls, "text": True},
+        )
+        response.raise_for_status()
+        data = response.json()
+    return _extract_results_to_rows(
+        [
+            {
+                "url": item.get("url", ""),
+                "title": item.get("title", ""),
+                "text": item.get("text", ""),
+            }
+            for item in data.get("results", [])
+        ],
+        provider="exa",
+    )
+
+
+def _extract_results_to_rows(items: list[dict[str, str]], provider: str) -> list[ResultRow]:
+    rows: list[ResultRow] = []
+    for item in items:
+        url = item.get("url", "")
+        if not url:
+            continue
+        text = (item.get("text") or "").strip()
+        title = item.get("title") or url.split("//")[-1].split("?")[0]
+        rows.append(
+            ResultRow(
+                fields={
+                    "title": title,
+                    "url": url,
+                    "summary": _compact(text, 600) if text else "No extractable content.",
+                    "published_date": "",
+                },
+                confidence=0.88 if text else 0.3,
+                citations=[Evidence(title=title, url=url, excerpt=_compact(text, 200))],
+                provider=provider,
+            )
+        )
+    return rows
 
 
 EDGAR_FTS_URL = "https://efts.sec.gov/LATEST/search-index"
@@ -1546,9 +1642,14 @@ def _source_shape_multiplier(provider_id: ProviderId, source_shape: SourceShape)
         if provider_id in ("perplexity", "tavily"):
             return 0.9
     if source_shape == "known_url":
-        # Extraction-class workflows favor Tavily (Extract endpoint) / Parallel.
-        if provider_id in ("parallel", "tavily"):
+        # Extraction-class workflows favor the venues with wired extract
+        # endpoints (Tavily Extract, Exa /contents), then Parallel.
+        if provider_id == "tavily":
+            return 1.15
+        if provider_id == "parallel":
             return 1.1
+        if provider_id == "exa":
+            return 1.08
     return 1.0
 
 
