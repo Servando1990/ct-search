@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import sys
 from collections import defaultdict
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -137,6 +138,7 @@ def recompute() -> int:
         json.dumps(
             {
                 "summary": {
+                    "generated_at": datetime.now(UTC).isoformat(),
                     "telemetry_rows": len(rows),
                     "joined_plans": len(joined),
                     "providers_updated": len(overrides),

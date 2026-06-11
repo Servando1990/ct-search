@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import json
+import os
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
 
 from ct_search.models import CapabilityMetric, ProviderId
 
@@ -324,5 +329,85 @@ PROVIDER_KNOWLEDGE: dict[ProviderId, ProviderKnowledge] = {
 }
 
 
+# --- Calibration overrides ---------------------------------------------------
+#
+# The nightly recompute job (eval/recompute_scores.py) joins route plans with
+# operator outcomes and writes posterior capability scores to
+# output/metric_overrides.json. Loading them here is what closes the loop:
+# vendor-reported priors are the starting point, but Edna's own run outcomes
+# move the numbers the router actually scores with.
+
+_DEFAULT_OVERRIDES_PATH = (
+    Path(__file__).resolve().parent.parent.parent / "output" / "metric_overrides.json"
+)
+_OVERRIDES_CACHE: tuple[tuple[str, float], dict[str, Any]] | None = None
+
+
+def overrides_path() -> Path:
+    """Resolved lazily so tests can point CT_SEARCH_OVERRIDES_PATH at a fixture."""
+    return Path(os.environ.get("CT_SEARCH_OVERRIDES_PATH", str(_DEFAULT_OVERRIDES_PATH)))
+
+
+def _load_overrides() -> dict[str, Any]:
+    """Parsed overrides, cached on (path, mtime) so edits are picked up live."""
+    global _OVERRIDES_CACHE
+    path = overrides_path()
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return {}
+    cache_key = (str(path), mtime)
+    if _OVERRIDES_CACHE is not None and _OVERRIDES_CACHE[0] == cache_key:
+        return _OVERRIDES_CACHE[1]
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        overrides = payload.get("overrides") or {}
+        if not isinstance(overrides, dict):
+            overrides = {}
+    except (OSError, json.JSONDecodeError):
+        overrides = {}
+    _OVERRIDES_CACHE = (cache_key, overrides)
+    return overrides
+
+
+def _apply_overrides(base: ProviderKnowledge) -> ProviderKnowledge:
+    axes = _load_overrides().get(base.id)
+    if not axes:
+        return base
+
+    scores = dict(base.capability_scores)
+    recalibrated: list[CapabilityMetric] = []
+    source_date = datetime.now(UTC).date().isoformat()
+    for axis, data in axes.items():
+        if not isinstance(data, dict):
+            continue
+        posterior = data.get("posterior")
+        if not isinstance(posterior, int | float) or not 0.0 <= float(posterior) <= 1.0:
+            continue
+        samples = int(data.get("samples", 0))
+        scores[axis] = float(posterior)
+        recalibrated.append(
+            CapabilityMetric(
+                axis=axis,
+                score=float(posterior),
+                origin="usage_telemetry",
+                source_url="",
+                source_date=source_date,
+                expires_at="",  # refreshed by the recompute job, never stale
+                confidence=min(0.95, 0.05 * samples) if samples else 0.5,
+                notes=(
+                    f"Posterior from {samples} Edna run outcomes "
+                    f"(prior {data.get('prior')}, observed {data.get('observed')})"
+                ),
+            )
+        )
+    # Recalibrated metrics lead so the UI provenance chips show them first.
+    return replace(
+        base,
+        capability_scores=scores,
+        metrics=tuple(recalibrated) + base.metrics,
+    )
+
+
 def provider_knowledge(provider_id: ProviderId) -> ProviderKnowledge:
-    return PROVIDER_KNOWLEDGE[provider_id]
+    return _apply_overrides(PROVIDER_KNOWLEDGE[provider_id])
