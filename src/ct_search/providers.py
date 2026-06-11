@@ -7,6 +7,7 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -129,6 +130,17 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         speed_score=0.8,
         quality_score=0.86,
         coverage_score=0.78,
+    ),
+    ProviderSpec(
+        id="edgar",
+        label="EDGAR",
+        env_keys=(),  # SEC full-text search is keyless — always live.
+        strengths=("SEC filings full-text search", "primary-source citations", "no key required"),
+        estimated_search_cost=0.0,
+        estimated_row_cost=0.0,
+        speed_score=0.82,
+        quality_score=0.86,
+        coverage_score=0.42,  # filings only — never a general-web contender
     ),
 )
 
@@ -328,14 +340,28 @@ def _framework_caveats(
     return caveats
 
 
+def _eligible_for_shape(provider_id: ProviderId, source_shape: SourceShape) -> bool:
+    """R2 — specialist indexes only compete inside their shape.
+
+    EDGAR is always available (keyless), so without this gate the
+    prefer-available promotion would route every open-web job to a
+    filings-only index in key-less environments.
+    """
+    if provider_id == "edgar":
+        return source_shape == "filings"
+    return True
+
+
 def _apply_framework_filters(
     specs: list[ProviderSpec],
     request: ResearchRequest,
     job_type: JobType,
     caveats: list[str],
 ) -> list[ProviderSpec]:
-    """Apply R1 (evidence-risk floor) and R3 (similar_to override) to candidate set."""
-    candidates = list(specs)
+    """Apply R1 (evidence-risk floor), R2 (shape gate), R3 (similar_to) to candidates."""
+    candidates = [
+        spec for spec in specs if _eligible_for_shape(spec.id, request.source_shape)
+    ]
 
     # R1: high evidence_risk requires providers with strong citation capability.
     if request.evidence_risk == "high":
@@ -897,6 +923,8 @@ async def _run_search(
         return await _tavily_search(request, settings)
     if spec.id == "perplexity":
         return await _perplexity_search(request, settings)
+    if spec.id == "edgar":
+        return await _edgar_search(request, settings)
     return _demo_search(request, spec)
 
 
@@ -1089,6 +1117,102 @@ async def _perplexity_search(request: ResearchRequest, settings: Settings) -> li
             provider="perplexity",
         )
     ]
+
+
+EDGAR_FTS_URL = "https://efts.sec.gov/LATEST/search-index"
+# Brief keywords → EDGAR `forms` filter. Form ADV is deliberately absent — it
+# lives on adviserinfo.sec.gov, outside EDGAR full-text search.
+_EDGAR_FORM_HINTS: tuple[tuple[str, str], ...] = (
+    ("form d", "D"),
+    ("reg d", "D"),
+    ("13f", "13F-HR"),
+    ("schedule 13d", "SC 13D"),
+    ("8-k", "8-K"),
+    ("10-k", "10-K"),
+    ("10-q", "10-Q"),
+    ("s-1", "S-1"),
+)
+
+
+async def _edgar_search(request: ResearchRequest, settings: Settings) -> list[ResultRow]:
+    """SEC EDGAR full-text search — keyless, primary-source filings."""
+    params: dict[str, str] = {"q": request.query}
+    forms = _edgar_forms_filter(request.query)
+    if forms:
+        params["forms"] = forms
+    if request.freshness_days:
+        today = datetime.now(UTC).date()
+        params["dateRange"] = "custom"
+        params["startdt"] = (today - timedelta(days=request.freshness_days)).isoformat()
+        params["enddt"] = today.isoformat()
+    # EDGAR FTS nodes intermittently 500 on valid queries — retry briefly
+    # before letting the executor fall back.
+    last_error: Exception | None = None
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        for attempt in range(3):
+            try:
+                response = await client.get(
+                    EDGAR_FTS_URL,
+                    params=params,
+                    headers={"User-Agent": settings.ct_search_edgar_user_agent},
+                )
+                response.raise_for_status()
+                return _edgar_results_to_rows(response.json(), request)
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                if exc.response.status_code < 500:
+                    raise
+                await asyncio.sleep(0.4 * (attempt + 1))
+    raise last_error if last_error else RuntimeError("EDGAR search failed")
+
+
+def _edgar_results_to_rows(data: dict[str, Any], request: ResearchRequest) -> list[ResultRow]:
+    rows: list[ResultRow] = []
+    hits = (data.get("hits") or {}).get("hits") or []
+    for hit in hits[: request.max_results]:
+        source = hit.get("_source") or {}
+        names = [str(name) for name in source.get("display_names") or []]
+        company = names[0].split("(CIK")[0].strip() if names else "Unknown filer"
+        form = str(source.get("form") or source.get("file_type") or "Filing")
+        file_date = str(source.get("file_date") or "")
+        ciks = [str(cik) for cik in source.get("ciks") or []]
+        url = _edgar_filing_url(ciks[0] if ciks else "", str(source.get("adsh") or ""))
+        locations = [str(location) for location in source.get("biz_locations") or []]
+
+        summary_bits = [f"{form} filed {file_date}" if file_date else form]
+        if len(names) > 1:
+            summary_bits.append(f"{len(names)} related filers")
+        if locations:
+            summary_bits.append(locations[0])
+
+        rows.append(
+            ResultRow(
+                fields={
+                    "title": f"{form} — {company}",
+                    "url": url,
+                    "summary": "; ".join(summary_bits),
+                    "published_date": file_date,
+                },
+                confidence=0.92,  # primary-source document, exact-match retrieval
+                citations=[Evidence(title=names[0] if names else company, url=url)],
+                provider="edgar",
+            )
+        )
+    return rows
+
+
+def _edgar_filing_url(cik: str, adsh: str) -> str:
+    cik_number = cik.lstrip("0")
+    accession = adsh.replace("-", "")
+    if not cik_number or not accession:
+        return "https://www.sec.gov/edgar/search/"
+    return f"https://www.sec.gov/Archives/edgar/data/{cik_number}/{accession}/{adsh}-index.htm"
+
+
+def _edgar_forms_filter(query: str) -> str:
+    lowered = query.lower()
+    forms = [form for hint, form in _EDGAR_FORM_HINTS if hint in lowered]
+    return ",".join(dict.fromkeys(forms))
 
 
 async def _parallel_task_enrichment(
@@ -1405,18 +1529,24 @@ def _score_provider(
 
 
 def _source_shape_multiplier(provider_id: ProviderId, source_shape: SourceShape) -> float:
-    """R3 (similar_to → Exa) and R4 (filings → direct-fetch providers)."""
+    """R3 (similar_to → Exa) and R4 (filings → EDGAR / direct-fetch providers)."""
+    if provider_id == "edgar" and source_shape != "filings":
+        # Filings-only index: never a contender for open-web shapes.
+        return 0.7
     if source_shape == "similar_to":
         # Exa-class semantic providers move to the top regardless of freshness.
         return 1.25 if provider_id == "exa" else 0.85
     if source_shape == "filings":
-        # Parallel directly fetches SEC/regulatory; news-wrappers get a soft penalty.
+        # EDGAR is the primary source itself; Parallel direct-fetches regulatory
+        # pages; news-wrappers get a soft penalty.
+        if provider_id == "edgar":
+            return 1.35
         if provider_id == "parallel":
             return 1.15
         if provider_id in ("perplexity", "tavily"):
             return 0.9
     if source_shape == "known_url":
-        # Extraction-class workflows favor Parallel (Extract) / Tavily (extract endpoint).
+        # Extraction-class workflows favor Tavily (Extract endpoint) / Parallel.
         if provider_id in ("parallel", "tavily"):
             return 1.1
     return 1.0
@@ -1562,6 +1692,9 @@ def _capability_weights(
         weights["latency_control"] = max(weights.get("latency_control", 0), 0.26)
     if prompt_profile["cost_sensitive"] or request.routing_mode == "cost":
         weights["low_cost"] = max(weights.get("low_cost", 0), 0.28)
+    if request.source_shape == "filings":
+        # R4 — filings jobs rank on the filings axis above all else.
+        weights["filings"] = 0.45
     return weights
 
 
@@ -1627,6 +1760,7 @@ def _route_steps(
         _spec(item["id"])
         for item in sorted(considered, key=lambda item: item["score"], reverse=True)
         if item["id"] != selected.id
+        and _eligible_for_shape(item["id"], request.source_shape)
     ]
 
     if strategy == "waterfall":

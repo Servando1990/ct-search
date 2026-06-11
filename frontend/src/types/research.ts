@@ -1,4 +1,4 @@
-export type ProviderId = "parallel" | "brave" | "exa" | "tavily" | "perplexity";
+export type ProviderId = "parallel" | "brave" | "exa" | "tavily" | "perplexity" | "edgar";
 
 export type RoutingMode = "best" | "cost" | "speed" | "confidence" | "manual";
 

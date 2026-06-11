@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     # keyword heuristics when unset, so demo mode needs no key.
     anthropic_api_key: str | None = None
     ct_search_intent_model: str = "claude-opus-4-8"
+    # SEC EDGAR full-text search is keyless but requires an identifying
+    # User-Agent per SEC fair-access policy.
+    ct_search_edgar_user_agent: str = "EdnaSearch/0.1 (servando@controlthrive.com)"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

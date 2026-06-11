@@ -326,6 +326,54 @@ PROVIDER_KNOWLEDGE: dict[ProviderId, ProviderKnowledge] = {
             ),
         ),
     ),
+    "edgar": ProviderKnowledge(
+        id="edgar",
+        best_for=(
+            "SEC filings full-text search",
+            "Form D / 13F / 8-K / 10-K diligence trails",
+            "primary-source citations at zero cost",
+        ),
+        tradeoffs=(
+            "Covers SEC filings only — no open-web, news, or people coverage",
+            "Form ADV lives on adviserinfo.sec.gov and is not in EDGAR full-text search",
+        ),
+        capability_scores={
+            "raw_search": 0.55,
+            "answer_synthesis": 0.2,
+            "structured_enrichment": 0.35,
+            "citations": 0.99,
+            "freshness": 0.9,
+            "latency_control": 0.85,
+            "low_cost": 1.0,
+            "company_people": 0.6,
+            "deep_research": 0.35,
+            "semantic_discovery": 0.2,
+            "content_extraction": 0.5,
+            "filings": 0.98,
+        },
+        source_urls=(
+            "https://efts.sec.gov/LATEST/search-index?q=",
+            "https://www.sec.gov/edgar/search/",
+            "https://www.sec.gov/os/accessing-edgar-data",
+        ),
+        benchmark_notes=(
+            "Direct integration with SEC EDGAR full-text search (efts.sec.gov); "
+            "keyless, fair-access rate limits apply.",
+        ),
+        economics=ProviderEconomics(avg_tokens_per_result=600, avg_match_rate=0.7),
+        metrics=(
+            CapabilityMetric(
+                axis="filings",
+                score=0.98,
+                origin="internal_eval",
+                source_url="https://www.sec.gov/edgar/search/",
+                source_date="2026-06-11",
+                expires_at=METRIC_EXPIRY_DEFAULT,
+                confidence=0.7,
+                notes="Primary-source SEC full-text search; integration verified live 2026-06-11",
+            ),
+        ),
+    ),
 }
 
 

@@ -123,7 +123,7 @@ cases:
 
   # ------- extract -------
   - id: extract-rias-adv2
-    description: Extract SEC ADV-2 facts — filings caveat or escalated processor
+    description: Extract SEC filings facts — EDGAR is the primary source for filings shapes
     request:
       mode: enrich
       job_type: extract
@@ -134,7 +134,7 @@ cases:
       source_shape: filings
       evidence_risk: high
     expect:
-      provider_in: [parallel, exa, perplexity]
+      provider_in: [edgar, parallel]
 
   # ------- brief -------
   - id: brief-placement-agent-market

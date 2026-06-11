@@ -156,6 +156,23 @@ const FALLBACK_PROVIDERS: ProviderPublic[] = [
     avg_match_rate: 0.62,
     metrics: [],
   },
+  {
+    id: "edgar",
+    label: "EDGAR",
+    env_keys: [],
+    strengths: ["SEC filings full-text search", "primary-source citations", "no key required"],
+    estimated_search_cost: 0,
+    estimated_row_cost: 0,
+    speed_score: 0.82,
+    quality_score: 0.86,
+    coverage_score: 0.42,
+    available: true,
+    best_for: ["SEC filings full-text search", "Form D / 13F / 8-K diligence trails"],
+    tradeoffs: ["covers SEC filings only — no open-web or people coverage"],
+    avg_tokens_per_result: 600,
+    avg_match_rate: 0.7,
+    metrics: [],
+  },
 ];
 
 type Phase = "compose" | "running" | "result";

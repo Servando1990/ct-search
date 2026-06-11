@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-ProviderId = Literal["parallel", "brave", "exa", "tavily", "perplexity"]
+ProviderId = Literal["parallel", "brave", "exa", "tavily", "perplexity", "edgar"]
 RoutingMode = Literal["best", "cost", "speed", "confidence", "manual"]
 ResearchMode = Literal["search", "enrich"]
 RouteStrategy = Literal[
