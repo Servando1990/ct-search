@@ -4,6 +4,8 @@ import type {
   ProviderPublic,
   ResearchPayload,
   ResearchResponse,
+  RunDetail,
+  RunSummary,
 } from "@/types/research";
 
 const API_BASE = "/backend";
@@ -35,6 +37,29 @@ export async function runResearch(payload: ResearchPayload): Promise<ResearchRes
     body: JSON.stringify(payload),
   });
   return readJson<ResearchResponse>(response);
+}
+
+export async function createRun(payload: ResearchPayload): Promise<{ run_id: string }> {
+  const response = await fetch(`${API_BASE}/api/runs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return readJson<{ run_id: string }>(response);
+}
+
+export async function getRun(runId: string): Promise<RunDetail> {
+  const response = await fetch(`${API_BASE}/api/runs/${runId}`, { cache: "no-store" });
+  return readJson<RunDetail>(response);
+}
+
+export async function listRuns(limit = 8): Promise<RunSummary[]> {
+  const response = await fetch(`${API_BASE}/api/runs?limit=${limit}`, { cache: "no-store" });
+  return readJson<RunSummary[]>(response);
+}
+
+export function runEventsUrl(runId: string): string {
+  return `${API_BASE}/api/runs/${runId}/events`;
 }
 
 export async function postOutcome(routePlanId: string, outcome: OutcomePayload): Promise<void> {

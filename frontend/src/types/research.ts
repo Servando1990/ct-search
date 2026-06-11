@@ -175,6 +175,34 @@ export interface PreviewResponse {
   rows: InputRow[];
 }
 
+// Async runs (phase 2)
+export type RunStatus = "queued" | "running" | "done" | "error";
+
+export interface RunSummary {
+  id: string;
+  created_at: string;
+  status: RunStatus;
+  query: string;
+  mode: ResearchMode;
+  row_count: number;
+  provider?: string | null;
+  strategy?: string | null;
+  estimated_cost?: number | null;
+  is_demo: boolean;
+  elapsed_ms?: number | null;
+  error?: string | null;
+}
+
+export interface RunDetail extends RunSummary {
+  response: ResearchResponse | null;
+}
+
+export interface RunEvent {
+  seq: number;
+  kind: string;
+  payload: Record<string, unknown>;
+}
+
 // PR3 — user outcome signals attached to a route plan for prior recalibration.
 export interface OutcomePayload {
   accepted_rows?: number | null;

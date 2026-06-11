@@ -176,3 +176,27 @@ class ExportRequest(BaseModel):
     columns: list[str] = Field(default_factory=list)
     rows: list[ResultRow] = Field(default_factory=list)
     route: RouteDecision | None = None
+
+
+# --- Async runs (phase 2) ----------------------------------------------------
+
+RunStatus = Literal["queued", "running", "done", "error"]
+
+
+class RunSummary(BaseModel):
+    id: str
+    created_at: str
+    status: RunStatus
+    query: str
+    mode: ResearchMode
+    row_count: int = 0
+    provider: str | None = None
+    strategy: str | None = None
+    estimated_cost: float | None = None
+    is_demo: bool = False
+    elapsed_ms: int | None = None
+    error: str | None = None
+
+
+class RunDetail(RunSummary):
+    response: ResearchResponse | None = None

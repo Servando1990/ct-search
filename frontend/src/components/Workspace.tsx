@@ -17,14 +17,24 @@ import type { ChangeEvent, KeyboardEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  createRun,
   downloadBlob,
   exportResults,
   getProviders,
+  getRun,
+  listRuns,
   postOutcome,
   previewSpreadsheet,
-  runResearch,
+  runEventsUrl,
 } from "@/lib/api";
-import { compactNumber, currency, displayValue, normalizeField, percent } from "@/lib/format";
+import {
+  compactNumber,
+  currency,
+  displayValue,
+  normalizeField,
+  percent,
+  timeAgo,
+} from "@/lib/format";
 import type {
   CellValue,
   EvidenceRisk,
@@ -36,6 +46,9 @@ import type {
   ResultRow,
   RouteDecision,
   RouteStep,
+  RouteStepRole,
+  RunEvent,
+  RunSummary,
 } from "@/types/research";
 
 const DEFAULT_FIELDS = [
@@ -150,6 +163,15 @@ type RoutePreference = "auto" | "cost" | "speed" | "confidence";
 type VenueChoice = ProviderId | "auto";
 type RiskChoice = EvidenceRisk | "auto";
 
+type LiveStepStatus = "pending" | "running" | "done" | "error";
+type LiveStep = {
+  role: RouteStepRole;
+  provider: string;
+  label: string;
+  status: LiveStepStatus;
+};
+type LiveRoute = { strategy: string; reason: string; steps: LiveStep[] };
+
 export function Workspace() {
   const [providers, setProviders] = useState<ProviderPublic[]>(FALLBACK_PROVIDERS);
   const [phase, setPhase] = useState<Phase>("compose");
@@ -172,11 +194,17 @@ export function Workspace() {
   const [dropped, setDropped] = useState<ReadonlySet<number>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  const [liveRoute, setLiveRoute] = useState<LiveRoute | null>(null);
+  const [liveNote, setLiveNote] = useState("");
+  const [history, setHistory] = useState<RunSummary[]>([]);
 
   const briefRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const outcomeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reviewed = useRef(false);
+  const eventSourceRef = useRef<EventSource | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const activeRunRef = useRef<string | null>(null);
 
   useEffect(() => {
     getProviders()
@@ -185,6 +213,16 @@ export function Workspace() {
         /* fall back to static venue list */
       });
   }, []);
+
+  // Refresh run history whenever the desk returns to the composer.
+  useEffect(() => {
+    if (phase !== "compose") return;
+    listRuns(8)
+      .then(setHistory)
+      .catch(() => {
+        /* history is best-effort */
+      });
+  }, [phase]);
 
   // Auto-grow the brief field with its content.
   useEffect(() => {
@@ -259,15 +297,144 @@ export function Workspace() {
     setFileName("");
   }
 
+  const stopStreaming = useCallback(() => {
+    activeRunRef.current = null;
+    eventSourceRef.current?.close();
+    eventSourceRef.current = null;
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }, []);
+
+  // Close any open stream when the component unmounts.
+  useEffect(() => stopStreaming, [stopStreaming]);
+
+  const finishRun = useCallback(
+    async (runId: string) => {
+      stopStreaming();
+      try {
+        const detail = await getRun(runId);
+        if (detail.response) {
+          setResult(detail.response);
+          setDropped(new Set());
+          reviewed.current = false;
+          setPhase("result");
+        } else {
+          setError(detail.error ?? "Run finished without a result.");
+          setPhase("compose");
+        }
+      } catch (fetchError) {
+        setError(errorMessage(fetchError));
+        setPhase("compose");
+      }
+    },
+    [stopStreaming],
+  );
+
+  const failRun = useCallback(
+    (message: string) => {
+      stopStreaming();
+      setError(message || "The run failed.");
+      setPhase("compose");
+    },
+    [stopStreaming],
+  );
+
+  const handleRunEvent = useCallback(
+    (runId: string, event: RunEvent) => {
+      if (activeRunRef.current !== runId) return;
+      const payload = event.payload;
+      if (event.kind === "intent.resolved") {
+        const note = typeof payload.note === "string" ? payload.note : "";
+        if (note) setLiveNote(`“${note}”`);
+      } else if (event.kind === "route.planned") {
+        const steps =
+          (payload.steps as Array<Pick<LiveStep, "role" | "provider" | "label">> | undefined) ??
+          [];
+        setLiveRoute({
+          strategy: String(payload.strategy ?? ""),
+          reason: typeof payload.reason === "string" ? payload.reason : "",
+          steps: steps.map((step) => ({ ...step, status: "pending" as const })),
+        });
+      } else if (event.kind === "step.started" || event.kind === "step.finished") {
+        const index = Number(payload.index);
+        const status: LiveStepStatus =
+          event.kind === "step.started" ? "running" : payload.error_type ? "error" : "done";
+        setLiveRoute((current) =>
+          current
+            ? {
+                ...current,
+                steps: current.steps.map((step, i) =>
+                  i === index ? { ...step, status } : step,
+                ),
+              }
+            : current,
+        );
+      } else if (event.kind === "budget.capped") {
+        setLiveNote("Run budget cap reached — remaining steps skipped.");
+      } else if (event.kind === "run.completed") {
+        void finishRun(runId);
+      } else if (event.kind === "run.failed") {
+        failRun(typeof payload.error === "string" ? payload.error : "The run failed.");
+      }
+    },
+    [failRun, finishRun],
+  );
+
+  const startPolling = useCallback(
+    (runId: string) => {
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+      pollTimerRef.current = setInterval(async () => {
+        if (activeRunRef.current !== runId) return;
+        try {
+          const detail = await getRun(runId);
+          if (detail.status === "done") void finishRun(runId);
+          else if (detail.status === "error") failRun(detail.error ?? "The run failed.");
+        } catch {
+          // Transient — keep polling.
+        }
+      }, 900);
+    },
+    [failRun, finishRun],
+  );
+
+  const attachToRun = useCallback(
+    (runId: string) => {
+      stopStreaming();
+      activeRunRef.current = runId;
+      setPhase("running");
+      setError(null);
+      setElapsed(0);
+      setLiveRoute(null);
+      setLiveNote("");
+      reviewed.current = false;
+      const source = new EventSource(runEventsUrl(runId));
+      eventSourceRef.current = source;
+      source.onmessage = (message) => {
+        try {
+          handleRunEvent(runId, JSON.parse(message.data) as RunEvent);
+        } catch {
+          // Malformed frame — ignore; polling fallback still covers us.
+        }
+      };
+      source.onerror = () => {
+        source.close();
+        if (eventSourceRef.current === source) {
+          eventSourceRef.current = null;
+          if (activeRunRef.current === runId) startPolling(runId);
+        }
+      };
+    },
+    [handleRunEvent, startPolling, stopStreaming],
+  );
+
   const handleRun = useCallback(async () => {
     if (!query.trim() && rows.length === 0) {
       setError("Write a brief or attach a list first.");
       return;
     }
-    setPhase("running");
     setError(null);
-    setElapsed(0);
-    reviewed.current = false;
     try {
       // Untuned values are omitted so the backend intent parser fills them
       // from the brief. Operator-tuned values always win.
@@ -281,15 +448,13 @@ export function Workspace() {
         max_results: 8,
         ...(evidenceRisk !== "auto" ? { evidence_risk: evidenceRisk } : {}),
       };
-      const response = await runResearch(payload);
-      setResult(response);
-      setDropped(new Set());
-      setPhase("result");
+      const created = await createRun(payload);
+      attachToRun(created.run_id);
     } catch (runError) {
       setError(errorMessage(runError));
       setPhase("compose");
     }
-  }, [evidenceRisk, fields, fieldsTuned, preference, query, rows, venue]);
+  }, [attachToRun, evidenceRisk, fields, fieldsTuned, preference, query, rows, venue]);
 
   function handleBriefKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
@@ -332,16 +497,42 @@ export function Workspace() {
   }
 
   function editBrief() {
+    stopStreaming();
     setPhase("compose");
     setResult(null);
   }
 
   function newRun() {
+    stopStreaming();
     setPhase("compose");
     setResult(null);
     setQuery("");
     detachFile();
     setError(null);
+  }
+
+  async function openRun(run: RunSummary) {
+    setQuery(run.query);
+    setError(null);
+    if (run.status === "running" || run.status === "queued") {
+      attachToRun(run.id);
+      return;
+    }
+    if (run.status === "error") {
+      setError(run.error ?? "This run failed.");
+      return;
+    }
+    try {
+      const detail = await getRun(run.id);
+      if (detail.response) {
+        setResult(detail.response);
+        setDropped(new Set());
+        reviewed.current = false;
+        setPhase("result");
+      }
+    } catch (openError) {
+      setError(errorMessage(openError));
+    }
   }
 
   function toggleField(field: string) {
@@ -640,25 +831,82 @@ export function Workspace() {
                 ))}
               </div>
             ) : null}
+
+            {history.length && !tuneOpen ? (
+              <div className="history-list" aria-label="Recent runs">
+                <span className="history-label">Recent runs</span>
+                {history.map((run) => (
+                  <button key={run.id} type="button" onClick={() => void openRun(run)}>
+                    <span className={`history-status is-${run.status}`} aria-hidden="true" />
+                    <span className="history-query">
+                      {run.query || `${run.mode} · ${compactNumber(run.row_count)} rows`}
+                    </span>
+                    <span className="history-meta">
+                      {run.status === "done"
+                        ? [
+                            run.provider ?? "",
+                            run.estimated_cost != null ? currency(run.estimated_cost) : "",
+                            run.is_demo ? "demo" : "live",
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")
+                        : run.status}
+                    </span>
+                    <span className="history-time">{timeAgo(run.created_at)}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </section>
         ) : null}
 
         {phase === "running" ? (
           <section className="routing-stage" role="status" aria-live="polite">
             <p className="brief-echo">{query.trim() || fileName}</p>
-            <div className="venue-scan">
-              <span className="scan-label">Scoring venues</span>
-              <ol>
-                {providers.map((provider, index) => (
-                  <li key={provider.id} style={{ animationDelay: `${index * 0.35}s` }}>
-                    {provider.label}
-                  </li>
-                ))}
-              </ol>
-              <span className="scan-clock">{(elapsed / 1000).toFixed(1)}s</span>
-            </div>
+            {liveRoute ? (
+              <div className="live-route">
+                <p className="scan-strategy">
+                  <span className="scan-label">Route</span>
+                  <strong>{formatStrategy(liveRoute.strategy)}</strong>
+                  <span className="scan-clock">{(elapsed / 1000).toFixed(1)}s</span>
+                </p>
+                <ol className="step-rail" aria-label="Route steps in progress">
+                  {liveRoute.steps.map((step, index) => (
+                    <li
+                      className="step-item"
+                      data-role={step.role}
+                      data-status={step.status}
+                      key={`${step.role}-${step.provider}-${index}`}
+                    >
+                      <span className="step-marker" aria-hidden="true" />
+                      <div className="step-body">
+                        <span className="step-role">{formatLabel(step.role)}</span>
+                        <strong>{step.label}</strong>
+                      </div>
+                      <div className="step-figures">
+                        <em className={step.status === "done" ? "is-live" : undefined}>
+                          {step.status}
+                        </em>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            ) : (
+              <div className="venue-scan">
+                <span className="scan-label">Scoring venues</span>
+                <ol>
+                  {providers.map((provider, index) => (
+                    <li key={provider.id} style={{ animationDelay: `${index * 0.35}s` }}>
+                      {provider.label}
+                    </li>
+                  ))}
+                </ol>
+                <span className="scan-clock">{(elapsed / 1000).toFixed(1)}s</span>
+              </div>
+            )}
             <p className="scan-note">
-              Planning the route — primary, fallback, verifier — by failure cost.
+              {liveNote || "Planning the route — primary, fallback, verifier — by failure cost."}
             </p>
           </section>
         ) : null}

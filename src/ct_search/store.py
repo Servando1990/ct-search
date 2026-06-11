@@ -25,14 +25,14 @@ from ct_search.models import ResearchRequest, ResearchResponse
 
 RunStatus = Literal["queued", "running", "done", "error"]
 
-_DB_PATH = Path(
-    os.environ.get(
-        "CT_SEARCH_DB_PATH",
-        Path(__file__).resolve().parent.parent.parent / "output" / "edna.db",
-    )
-)
+_DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent.parent / "output" / "edna.db"
 _LOCK = threading.Lock()
 _CONNECTION: sqlite3.Connection | None = None
+
+
+def db_path() -> Path:
+    """Resolved lazily so tests can point CT_SEARCH_DB_PATH at a temp file."""
+    return Path(os.environ.get("CT_SEARCH_DB_PATH", str(_DEFAULT_DB_PATH)))
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -68,8 +68,9 @@ CREATE INDEX IF NOT EXISTS idx_run_events_run_id ON run_events (run_id, seq);
 def _connection() -> sqlite3.Connection:
     global _CONNECTION
     if _CONNECTION is None:
-        _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(_DB_PATH, check_same_thread=False)
+        path = db_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        connection = sqlite3.connect(path, check_same_thread=False)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA synchronous=NORMAL")
@@ -209,7 +210,3 @@ def _run_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     if "request_json" in data:
         data["request"] = json.loads(data.pop("request_json"))
     return data
-
-
-def db_path() -> Path:
-    return _DB_PATH

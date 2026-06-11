@@ -56,4 +56,8 @@ Implemented adapters:
 - Tavily Search API.
 - Perplexity Sonar.
 
-Bulk enrichment defaults to demo mode unless `CT_SEARCH_LIVE_ENRICHMENT=1`, because live per-row Task API enrichment can be slow and costly. The code path is present for small batches.
+## Async Runs
+
+The workbench executes research as background runs: `POST /api/runs` schedules the plan, `GET /api/runs/{id}/events` streams progress (SSE — intent, planned route, each step starting/finishing), and `GET /api/runs` lists history. Runs and their events persist to SQLite at `output/edna.db` (`CT_SEARCH_DB_PATH` to override), so results survive reloads and past runs reopen from the desk. `POST /api/research` remains as the synchronous path for scripts.
+
+Live per-row Task API enrichment is on by default, guarded by a per-run budget cap (`CT_SEARCH_MAX_RUN_BUDGET_USD`, default $2.00): live steps beyond the primary are skipped past the cap, and enrichment falls back to demo rows when its estimate exceeds the budget. `CT_SEARCH_LIVE_ENRICHMENT=0` forces demo enrichment regardless.

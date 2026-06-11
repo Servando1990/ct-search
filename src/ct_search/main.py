@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
+import json
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -16,8 +20,10 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import inch
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from ct_search.models import ExportRequest, ResearchRequest
+from ct_search import store
+from ct_search.models import ExportRequest, ResearchRequest, RunDetail, RunSummary
 from ct_search.providers import public_providers, run_research
+from ct_search.runs import TERMINAL_EVENT_KINDS, get_run_manager
 from ct_search.settings import get_settings
 from ct_search.telemetry import (
     UserOutcome,
@@ -28,7 +34,18 @@ from ct_search.telemetry import (
 # Logfire — configure once, before FastAPI auto-instrumentation hooks.
 configure_logfire()
 
-app = FastAPI(title="Edna Search", version="0.1.0")
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    # Runs are in-process asyncio tasks; anything still open from a previous
+    # process can never finish, so mark it errored on boot.
+    orphaned = store.fail_orphaned_runs("Server restarted before the run finished.")
+    if orphaned:
+        logfire.info("orphaned_runs_failed {count}", count=orphaned)
+    yield
+
+
+app = FastAPI(title="Edna Search", version="0.1.0", lifespan=_lifespan)
 logfire.instrument_fastapi(app, capture_headers=False)
 logfire.instrument_httpx()
 app.add_middleware(
@@ -69,10 +86,89 @@ async def preview_spreadsheet(file: Annotated[UploadFile, File(...)]) -> dict[st
 
 @app.post("/api/research")
 async def research(request: ResearchRequest):
+    """Synchronous run — kept for back-compat and scripting; the workbench
+    uses the async /api/runs flow below."""
     if not request.query and not request.rows:
         raise HTTPException(status_code=400, detail="Provide a search query or upload rows.")
     settings = get_settings()
     return await run_research(request, settings)
+
+
+# --- Async runs (phase 2) ----------------------------------------------------
+
+
+@app.post("/api/runs")
+async def create_run(request: ResearchRequest) -> dict[str, str]:
+    if not request.query and not request.rows:
+        raise HTTPException(status_code=400, detail="Provide a search query or upload rows.")
+    run_id = get_run_manager().start_run(request, get_settings())
+    return {"run_id": run_id, "status": "queued"}
+
+
+@app.get("/api/runs")
+async def list_runs(limit: int = 12) -> list[RunSummary]:
+    return [RunSummary.model_validate(run) for run in store.list_runs(min(max(limit, 1), 50))]
+
+
+@app.get("/api/runs/{run_id}")
+async def get_run(run_id: str) -> RunDetail:
+    run = store.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found.")
+    return RunDetail.model_validate(run)
+
+
+@app.get("/api/runs/{run_id}/events")
+async def run_events(run_id: str) -> StreamingResponse:
+    """SSE progress stream: replays persisted events, then tails live ones."""
+    if store.get_run(run_id) is None:
+        raise HTTPException(status_code=404, detail="Run not found.")
+    return StreamingResponse(
+        _event_stream(run_id),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+async def _event_stream(run_id: str) -> AsyncIterator[str]:
+    manager = get_run_manager()
+    # Subscribe before replaying so nothing falls between the two.
+    queue = manager.subscribe(run_id)
+    try:
+        last_seq = 0
+        for event in store.list_events(run_id):
+            last_seq = event["seq"]
+            yield _sse(event)
+            if event["kind"] in TERMINAL_EVENT_KINDS:
+                return
+
+        run = store.get_run(run_id)
+        if run and run["status"] in ("done", "error"):
+            return
+
+        while True:
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=15.0)
+            except TimeoutError:
+                yield ": ping\n\n"
+                run = store.get_run(run_id)
+                if run and run["status"] in ("done", "error"):
+                    return
+                continue
+            if event is None:  # run closed
+                return
+            if event["seq"] <= last_seq:
+                continue  # already replayed
+            last_seq = event["seq"]
+            yield _sse(event)
+            if event["kind"] in TERMINAL_EVENT_KINDS:
+                return
+    finally:
+        manager.unsubscribe(run_id, queue)
+
+
+def _sse(event: dict[str, Any]) -> str:
+    return f"data: {json.dumps(event, separators=(',', ':'))}\n\n"
 
 
 @app.post("/api/telemetry/outcome")

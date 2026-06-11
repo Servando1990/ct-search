@@ -688,6 +688,120 @@
   }
 }
 
+/* Live route — the planned step rail filling in while the run executes. */
+
+.live-route {
+  padding: 0.9rem 0 0.3rem;
+  border-block-start: 1px solid var(--ws-line);
+}
+
+.scan-strategy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin: 0 0 0.4rem;
+}
+
+.scan-strategy strong {
+  font-size: 0.95rem;
+  font-weight: 760;
+}
+
+.scan-strategy .scan-clock {
+  margin-inline-start: auto;
+}
+
+.step-item[data-status="pending"] {
+  opacity: 0.45;
+}
+
+.step-item[data-status="running"] .step-marker {
+  animation: marker-pulse 1s ease-in-out infinite;
+}
+
+.step-item[data-status="error"] .step-role,
+.step-item[data-status="error"] .step-figures em {
+  color: var(--ws-rust);
+}
+
+@keyframes marker-pulse {
+  50% {
+    transform: rotate(45deg) scale(1.4);
+    opacity: 0.55;
+  }
+}
+
+/* Recent runs — history on the composer. */
+
+.history-list {
+  display: grid;
+  gap: 0.1rem;
+  margin-block-start: 2rem;
+}
+
+.history-label {
+  margin-block-end: 0.35rem;
+  color: var(--ws-brass);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.history-list button {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  gap: 0.6rem;
+  min-height: 34px;
+  padding-inline: 0.45rem;
+  border-radius: 6px;
+  text-align: left;
+}
+
+.history-list button:hover {
+  background: var(--ws-surface-muted);
+}
+
+.history-status {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  align-self: center;
+  background: var(--ws-line-strong);
+}
+
+.history-status.is-done {
+  background: var(--ws-forest);
+}
+
+.history-status.is-error {
+  background: var(--ws-rust);
+}
+
+.history-status.is-running,
+.history-status.is-queued {
+  background: var(--ws-brass);
+}
+
+.history-query {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.84rem;
+  font-weight: 640;
+}
+
+.history-meta,
+.history-time {
+  color: var(--ws-ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+
 /* --- Result: run header ------------------------------------------------------ */
 
 .run-header {
