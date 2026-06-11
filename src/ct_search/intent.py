@@ -145,10 +145,13 @@ async def resolve_intent(
 
     signals = await infer_intent(request, settings)
     updates: dict[str, object] = {}
-    # Deterministic minimum even without the LLM: a brief that names URLs is a
-    # known_url job — the extraction route depends on this shape.
-    if signals is None and open_slots["source_shape"] and "http" in request.query:
-        updates["source_shape"] = "known_url"
+    # Deterministic minimum even without the LLM: URLs mean known_url
+    # (extraction route), filings vocabulary means filings (EDGAR route).
+    if signals is None and open_slots["source_shape"]:
+        if "http" in request.query:
+            updates["source_shape"] = "known_url"
+        elif _mentions_filings(request.query):
+            updates["source_shape"] = "filings"
     if signals is not None:
         if open_slots["job_type"]:
             updates["job_type"] = signals.job_type
@@ -181,6 +184,27 @@ def _intent_prompt(request: ResearchRequest) -> str:
         lines.append(f"Operator-selected fields: {', '.join(request.fields)}")
     lines.append(f"Mode: {request.mode}")
     return "\n".join(lines)
+
+
+_FILINGS_TERMS = (
+    "filing",
+    "filings",
+    "edgar",
+    "form d",
+    "form 13f",
+    "13f",
+    "8-k",
+    "10-k",
+    "10-q",
+    "s-1",
+    "schedule 13d",
+    "prospectus",
+)
+
+
+def _mentions_filings(query: str) -> bool:
+    lowered = query.lower()
+    return any(term in lowered for term in _FILINGS_TERMS)
 
 
 def _normalize_field(value: str) -> str:

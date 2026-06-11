@@ -1230,35 +1230,75 @@ _EDGAR_FORM_HINTS: tuple[tuple[str, str], ...] = (
 )
 
 
+# EDGAR FTS ANDs every term against literal document text, so briefs must be
+# stripped of instruction/meta words ("show Form D filings from …") before
+# they can match anything.
+_EDGAR_QUERY_NOISE = frozenset(
+    {
+        "filing", "filings", "filed", "edgar", "sec", "form", "forms",
+        "show", "find", "list", "all", "every", "search", "pull", "get", "track",
+        "from", "by", "for", "of", "the", "a", "an", "in", "on", "with", "and",
+        "recent", "latest", "new", "this", "year", "quarter", "month", "active",
+    }
+)
+
+
+def _edgar_query_ladder(query: str) -> list[str]:
+    """Cleaned FTS queries, most-specific first, relaxing until something hits."""
+    lowered = query.lower()
+    for hint, _form in _EDGAR_FORM_HINTS:
+        lowered = lowered.replace(hint, " ")
+    words = re.findall(r"[a-z0-9][a-z0-9&.-]*", lowered)
+    terms = [word for word in words if word not in _EDGAR_QUERY_NOISE]
+    ladder = []
+    if terms:
+        ladder.append(" ".join(terms))
+    if len(terms) > 2:
+        ladder.append(" ".join(terms[:2]))
+    return ladder or [query]
+
+
 async def _edgar_search(request: ResearchRequest, settings: Settings) -> list[ResultRow]:
     """SEC EDGAR full-text search — keyless, primary-source filings."""
-    params: dict[str, str] = {"q": request.query}
+    base_params: dict[str, str] = {}
     forms = _edgar_forms_filter(request.query)
     if forms:
-        params["forms"] = forms
+        base_params["forms"] = forms
     if request.freshness_days:
         today = datetime.now(UTC).date()
-        params["dateRange"] = "custom"
-        params["startdt"] = (today - timedelta(days=request.freshness_days)).isoformat()
-        params["enddt"] = today.isoformat()
+        base_params["dateRange"] = "custom"
+        base_params["startdt"] = (today - timedelta(days=request.freshness_days)).isoformat()
+        base_params["enddt"] = today.isoformat()
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        for query in _edgar_query_ladder(request.query):
+            data = await _edgar_fetch(client, {**base_params, "q": query}, settings)
+            rows = _edgar_results_to_rows(data, request)
+            if rows:
+                return rows
+    return []
+
+
+async def _edgar_fetch(
+    client: httpx.AsyncClient, params: dict[str, str], settings: Settings
+) -> dict[str, Any]:
     # EDGAR FTS nodes intermittently 500 on valid queries — retry briefly
     # before letting the executor fall back.
     last_error: Exception | None = None
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        for attempt in range(3):
-            try:
-                response = await client.get(
-                    EDGAR_FTS_URL,
-                    params=params,
-                    headers={"User-Agent": settings.ct_search_edgar_user_agent},
-                )
-                response.raise_for_status()
-                return _edgar_results_to_rows(response.json(), request)
-            except httpx.HTTPStatusError as exc:
-                last_error = exc
-                if exc.response.status_code < 500:
-                    raise
-                await asyncio.sleep(0.4 * (attempt + 1))
+    for attempt in range(3):
+        try:
+            response = await client.get(
+                EDGAR_FTS_URL,
+                params=params,
+                headers={"User-Agent": settings.ct_search_edgar_user_agent},
+            )
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as exc:
+            last_error = exc
+            if exc.response.status_code < 500:
+                raise
+            await asyncio.sleep(0.4 * (attempt + 1))
     raise last_error if last_error else RuntimeError("EDGAR search failed")
 
 
