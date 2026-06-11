@@ -52,9 +52,10 @@ Implemented adapters:
 
 - Parallel Search API through the Python SDK with REST fallback.
 - Brave Search API.
-- Exa Search API.
-- Tavily Search API.
-- Perplexity Sonar.
+- Exa Search API (search + /contents extraction).
+- Tavily Search API (search + Extract).
+- Perplexity Sonar (escalates to sonar-pro for deep research).
+- SEC EDGAR full-text search — keyless, live out of the box for filings-shaped jobs.
 
 ## Async Runs
 

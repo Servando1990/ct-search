@@ -1931,6 +1931,28 @@ def _route_steps(
             )
 
     if strategy == "retrieve_then_synthesize":
+        # R1 — high evidence risk keeps the mandatory verifier even on
+        # synthesis routes: the brief may only cite what survived the check.
+        if request.evidence_risk == "high":
+            verifier = _best_alternate(ranked_alternates, settings)
+            if verifier:
+                steps.append(
+                    RouteStep(
+                        provider=verifier.id,
+                        label=verifier.label,
+                        role="verification",
+                        reason=_secondary_step_reason("verification", verifier.id),
+                        trigger=(
+                            "Independent cross-check on low-confidence rows before "
+                            "they feed the synthesized brief."
+                        ),
+                        estimated_cost=_estimate_cost(verifier, request, rows, fields),
+                        available=verifier.available(settings),
+                        estimated_cost_per_grounded_row=_cost_per_grounded_row(
+                            verifier, request, rows, fields
+                        ),
+                    )
+                )
         synthesis = _preferred_provider(("perplexity", "parallel"), selected.id, settings)
         if synthesis:
             steps.append(

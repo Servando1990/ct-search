@@ -1,8 +1,9 @@
-# Edna-native eval set — 30 representative private-capital queries.
+# Edna-native eval set — 50 representative private-capital queries.
 #
 # Coverage targets one row per (job_type × evidence_risk × source_shape)
 # combination that the framework can route today. Spec target is 50–100
-# queries; this file is the seed corpus and is expected to grow.
+# queries; expectations are deliberately conservative where provider scores
+# are close, and tight where a framework rule (R1–R8) forces the outcome.
 #
 # Each query asserts:
 #   provider_in  — the primary provider must be one of these
@@ -182,3 +183,477 @@ cases:
       evidence_risk: low
     expect:
       caveat_match: "Static enrichment"
+
+  # ------- filings (EDGAR) -------
+  - id: filings-form-d-sponsors
+    description: Form D scan for new sponsor raises — EDGAR primary source
+    request:
+      mode: search
+      job_type: discover
+      query: "Form D filings by independent sponsors raising first-time funds"
+      source_shape: filings
+      evidence_risk: medium
+    expect:
+      provider_in: [edgar]
+      role_present: [primary]
+
+  - id: filings-13f-tracking
+    description: 13F position tracking for a crossover fund
+    request:
+      mode: search
+      job_type: research
+      query: "13F filings showing Tiger Global healthcare positions"
+      source_shape: filings
+      evidence_risk: medium
+      freshness_days: 90
+    expect:
+      provider_in: [edgar]
+
+  - id: filings-8k-events-high-risk
+    description: 8-K event diligence at IC grade — verifier mandatory
+    request:
+      mode: search
+      job_type: verify
+      query: "8-K filings disclosing executive departures at Apex Industrial"
+      source_shape: filings
+      evidence_risk: high
+    expect:
+      provider_in: [edgar]
+      role_present: [primary, verification]
+
+  - id: filings-s1-pipeline
+    description: S-1 pipeline scan for sponsor exits
+    request:
+      mode: search
+      job_type: discover
+      query: "S-1 registrations from PE-backed industrial companies"
+      source_shape: filings
+      evidence_risk: medium
+      freshness_days: 180
+    expect:
+      provider_in: [edgar]
+
+  - id: filings-continuation-vehicle
+    description: Filings trail for a continuation vehicle
+    request:
+      mode: search
+      job_type: research
+      query: "Form D and related filings for GP-led continuation vehicles in 2026"
+      source_shape: filings
+      evidence_risk: medium
+    expect:
+      provider_in: [edgar]
+
+  - id: filings-never-on-open-web
+    description: SEC words alone must not pull EDGAR onto open-web jobs
+    request:
+      mode: search
+      job_type: research
+      query: "What did the SEC say about private fund adviser rules?"
+      source_shape: open_web
+      evidence_risk: medium
+    expect:
+      provider_in: [parallel, exa, tavily, perplexity, brave]
+
+  # ------- extract / known_url -------
+  - id: extract-team-page
+    description: Known-URL extraction routes to a wired extract venue
+    request:
+      mode: search
+      job_type: extract
+      query: "Pull the team and mandate from https://www.summitridgecap.com/team"
+      source_shape: known_url
+      evidence_risk: low
+    expect:
+      provider_in: [tavily, parallel]
+      role_present: [primary]
+
+  - id: extract-fund-page-cited
+    description: Known-URL extraction at medium risk keeps citations
+    request:
+      mode: search
+      job_type: extract
+      query: "Extract fund size and strategy from https://example-gp.com/fund-iv"
+      source_shape: known_url
+      evidence_risk: medium
+    expect:
+      provider_in: [tavily, parallel, exa]
+
+  - id: extract-multi-url
+    description: Multiple URLs in one brief stay a single extraction job
+    request:
+      mode: search
+      job_type: extract
+      query: "Compare https://gp-one.com/about and https://gp-two.com/about mandates"
+      source_shape: known_url
+      evidence_risk: low
+    expect:
+      provider_in: [tavily, parallel]
+
+  - id: extract-high-risk-verified
+    description: High-risk extraction adds an independent verifier
+    request:
+      mode: search
+      job_type: extract
+      query: "Extract GP commitments from https://example-gp.com/lpa-summary"
+      source_shape: known_url
+      evidence_risk: high
+    expect:
+      role_present: [primary, verification]
+
+  # ------- discover -------
+  - id: discover-family-offices
+    description: Family-office discovery in a sector
+    request:
+      mode: search
+      job_type: discover
+      query: "Find all single-family offices that invest directly in industrial services"
+      source_shape: open_web
+      evidence_risk: medium
+    expect:
+      provider_in: [parallel, exa]
+      role_present: [primary]
+
+  - id: discover-secondaries-buyers
+    description: Secondaries buyer discovery with freshness window
+    request:
+      mode: search
+      job_type: discover
+      query: "List every secondaries buyer active in GP-led deals this year"
+      source_shape: open_web
+      evidence_risk: medium
+      freshness_days: 365
+    expect:
+      provider_in: [parallel, exa]
+
+  - id: discover-similar-gp
+    description: Similar-to GP discovery overrides freshness (R3/F2)
+    request:
+      mode: search
+      job_type: discover
+      query: "Funds similar to Shore Capital in healthcare micro-buyouts"
+      source_shape: similar_to
+      evidence_risk: medium
+      freshness_days: 7
+    expect:
+      provider_in: [exa]
+
+  - id: discover-emerging-managers
+    description: Emerging manager discovery at low risk
+    request:
+      mode: search
+      job_type: discover
+      query: "Discover emerging managers spinning out of megafunds in 2026"
+      source_shape: open_web
+      evidence_risk: low
+      freshness_days: 365
+    expect:
+      role_present: [primary]
+
+  - id: discover-manual-override-caveat
+    description: R5 — manual venue on a discovery job gets a fit caveat
+    request:
+      mode: search
+      job_type: discover
+      query: "Find all healthcare-focused placement agents"
+      source_shape: open_web
+      evidence_risk: medium
+      routing_mode: manual
+      provider: brave
+    expect:
+      strategy: manual
+      caveat_match: "Discovery"
+
+  # ------- enrich -------
+  - id: enrich-waterfall-120-rows
+    description: R6 — 120-row enrichment forces waterfall with fallbacks
+    request:
+      mode: enrich
+      job_type: enrich
+      query: "Enrich this LP list with mandate, ticket size, and IR contact"
+      rows:
+        - { company: "LP Alpha" }
+        - { company: "LP Beta" }
+      fields: [mandate, ticket_size, ir_contact]
+      evidence_risk: medium
+      scale_hint:
+        rows: 120
+    expect:
+      strategy: waterfall
+      role_present: [primary, fallback]
+      caveat_match: "waterfall"
+
+  - id: enrich-small-batch-no-waterfall
+    description: Sub-threshold enrichment stays off the waterfall
+    request:
+      mode: enrich
+      job_type: enrich
+      query: "Enrich these 10 sponsors with sector focus and latest fund"
+      rows:
+        - { company: "Sponsor One" }
+      fields: [sector_focus, latest_fund]
+      evidence_risk: medium
+      scale_hint:
+        rows: 10
+    expect:
+      role_present: [primary]
+
+  - id: enrich-high-risk-waterfall-verifier
+    description: R6 + R1 — high-risk waterfall appends a verifier step
+    request:
+      mode: enrich
+      job_type: enrich
+      query: "Enrich target list with revenue band and ownership, diligence grade"
+      rows:
+        - { company: "Target Co" }
+      fields: [revenue_band, ownership, source_notes]
+      evidence_risk: high
+      scale_hint:
+        rows: 200
+    expect:
+      strategy: waterfall
+      role_present: [primary, fallback, verification]
+
+  - id: enrich-broker-dealer-contacts
+    description: Broker-dealer contact enrichment, cited
+    request:
+      mode: enrich
+      job_type: enrich
+      query: "Enrich broker-dealer contacts with FINRA registration and coverage"
+      rows:
+        - { company: "BD One", name: "Pat Doe" }
+      fields: [finra_status, coverage, linkedin_profile]
+      evidence_risk: medium
+    expect:
+      provider_in: [parallel, exa, tavily, perplexity]
+
+  - id: enrich-fund-of-funds
+    description: Fund-of-funds program enrichment at medium risk
+    request:
+      mode: enrich
+      job_type: enrich
+      query: "Add program size and pacing to these fund-of-funds"
+      rows:
+        - { company: "FoF One" }
+      fields: [program_size, pacing, source_notes]
+      evidence_risk: medium
+    expect:
+      role_present: [primary]
+
+  - id: enrich-low-risk-skips-verifier
+    description: Low-risk enrichment must not pay for verification
+    request:
+      mode: enrich
+      job_type: enrich
+      query: "Quick pass: add websites to these firms"
+      rows:
+        - { company: "Firm A" }
+      fields: [website]
+      evidence_risk: low
+    expect:
+      strategy: any
+      role_present: [primary]
+
+  # ------- research -------
+  - id: research-medium-risk-citation-floor
+    description: R1 — medium risk excludes venues under the 0.70 citation floor
+    request:
+      mode: search
+      job_type: research
+      query: "Who anchors first-time industrial funds in the Midwest?"
+      source_shape: open_web
+      evidence_risk: medium
+    expect:
+      provider_in: [parallel, exa, tavily, perplexity]
+
+  - id: research-high-risk-citation-floor
+    description: R1 — high risk tightens the floor to 0.85
+    request:
+      mode: search
+      job_type: research
+      query: "Confirm the LP base of Crestline Fund IV for an IC memo"
+      source_shape: open_web
+      evidence_risk: high
+    expect:
+      provider_in: [parallel, exa, perplexity]
+      role_present: [primary, verification]
+
+  - id: research-tight-freshness
+    description: F1 — 3-day window penalizes stale-index venues
+    request:
+      mode: search
+      job_type: research
+      query: "What changed in take-private chatter around Acme Corp?"
+      source_shape: open_web
+      evidence_risk: medium
+      freshness_days: 3
+    expect:
+      provider_in: [parallel, brave, tavily, perplexity]
+
+  - id: research-gp-track-record
+    description: GP track record research, cited
+    request:
+      mode: search
+      job_type: research
+      query: "Track record and DPI for Riverbend Capital funds I-III with sources"
+      source_shape: open_web
+      evidence_risk: medium
+    expect:
+      role_present: [primary]
+
+  - id: research-lp-sentiment
+    description: LP sentiment scan at low risk
+    request:
+      mode: search
+      job_type: research
+      query: "How are LPs talking about continuation vehicles this quarter?"
+      source_shape: open_web
+      evidence_risk: low
+      freshness_days: 90
+    expect:
+      role_present: [primary]
+
+  - id: research-regulatory-open-web
+    description: Regulatory research stays on web venues when shape is open_web
+    request:
+      mode: search
+      job_type: research
+      query: "Implications of the new private fund adviser rules for placement agents"
+      source_shape: open_web
+      evidence_risk: medium
+    expect:
+      provider_in: [parallel, exa, tavily, perplexity]
+
+  # ------- brief / deep research -------
+  - id: brief-deep-research-synthesis
+    description: R8 — deep-research brief retrieves then synthesizes
+    request:
+      mode: search
+      job_type: brief
+      query: "Comprehensive landscape brief: independent sponsor economics in 2026"
+      source_shape: open_web
+      evidence_risk: medium
+    expect:
+      strategy: retrieve_then_synthesize
+      role_present: [primary, synthesis]
+
+  - id: brief-ic-memo-high-risk
+    description: IC-grade brief keeps synthesis and citations
+    request:
+      mode: search
+      job_type: brief
+      query: "Investment memo brief on the lower-middle-market HVAC roll-up thesis"
+      source_shape: open_web
+      evidence_risk: high
+    expect:
+      strategy: retrieve_then_synthesize
+      role_present: [primary, synthesis]
+
+  - id: brief-fundraising-climate
+    description: Market-state brief at low risk
+    request:
+      mode: search
+      job_type: brief
+      query: "Brief me on the fundraising climate for first-time buyout funds"
+      source_shape: open_web
+      evidence_risk: low
+    expect:
+      strategy: retrieve_then_synthesize
+
+  - id: brief-secondaries-pricing
+    description: Pricing benchmark brief with freshness window
+    request:
+      mode: search
+      job_type: brief
+      query: "Benchmark brief: LP secondaries pricing by strategy this year"
+      source_shape: open_web
+      evidence_risk: medium
+      freshness_days: 365
+    expect:
+      strategy: retrieve_then_synthesize
+      role_present: [synthesis]
+
+  # ------- verify -------
+  - id: verify-fund-close
+    description: Verify a fund close figure before outreach
+    request:
+      mode: search
+      job_type: verify
+      query: "Verify Hg Capital's latest flagship close size before we cite it"
+      source_shape: open_web
+      evidence_risk: high
+      freshness_days: 60
+    expect:
+      provider_in: [parallel, exa, perplexity]
+      role_present: [primary, verification]
+
+  - id: verify-low-risk-desk-check
+    description: Low-risk verify skips the mandatory verifier
+    request:
+      mode: search
+      job_type: verify
+      query: "Sanity-check whether Foo Capital is still investing out of Fund II"
+      source_shape: open_web
+      evidence_risk: low
+    expect:
+      role_present: [primary]
+
+  # ------- monitor -------
+  - id: monitor-event-stream-caveat
+    description: Event-stream monitoring fails loudly (no Monitor provider)
+    request:
+      mode: search
+      job_type: monitor
+      query: "Watch for new Form D filings from healthcare sponsors"
+      source_shape: event_stream
+      evidence_risk: medium
+    expect:
+      caveat_match: "Monitor"
+
+  - id: monitor-on-demand-fallback
+    description: Monitor intent on open_web degrades to on-demand search
+    request:
+      mode: search
+      job_type: monitor
+      query: "Track fundraising announcements from European growth funds"
+      source_shape: open_web
+      evidence_risk: low
+      freshness_days: 7
+    expect:
+      role_present: [primary]
+
+  # ------- routing modes -------
+  - id: mode-cost-routes-cheap
+    description: Cost mode favors low-cost venues
+    request:
+      mode: search
+      job_type: research
+      query: "cheap scan of recent PE hiring moves"
+      routing_mode: cost
+      evidence_risk: low
+    expect:
+      provider_in: [brave, parallel, tavily]
+
+  - id: mode-manual-respected
+    description: Manual venue choice is honored verbatim
+    request:
+      mode: search
+      query: "anything at all"
+      routing_mode: manual
+      provider: perplexity
+      evidence_risk: low
+    expect:
+      provider_in: [perplexity]
+      strategy: manual
+
+  - id: mode-latency-fallback
+    description: Latency-sensitive runs add a fallback step
+    request:
+      mode: search
+      job_type: research
+      query: "real-time check on Brookfield infrastructure deal chatter"
+      source_shape: open_web
+      evidence_risk: low
+    expect:
+      strategy: primary_with_fallback
+      role_present: [primary, fallback]

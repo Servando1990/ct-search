@@ -169,12 +169,13 @@ ResearchRequest (job_type, source_shape, evidence_risk, freshness_days, scale_hi
 - **Two surfaces, one system.** Landing converts (positioning + product proof); workbench
   operates (dense, table-first). Both share one green-tinted OKLCH design system with no
   SaaS-cream, no nested cards, no AI-template scaffolding.
-- **Deliberate gaps remain, by choice.** SerpAPI/Extract/Monitor providers aren't wired (fail
-  loudly with caveats); eval set is 13 cases vs a 50–100 target; non-Parallel enrichment is
-  citation-capturing, not arbitrary-field extraction. Two earlier gaps have since closed:
-  the workbench now POSTs accept/reject/export outcomes to the calibration loop, and an LLM
-  intent parser (`intent.py`) fills `job_type`/`source_shape`/`evidence_risk`/`freshness_days`/
-  fields from the brief (keyword heuristics remain the no-key fallback).
+- **Deliberate gaps remain, by choice.** SerpAPI verticals and Monitor/event-stream providers
+  aren't wired (fail loudly with caveats); non-Parallel enrichment is citation-capturing, not
+  arbitrary-field extraction; FindAll-class discovery is flagged but not wired. Closed since
+  this doc was first written: outcome telemetry flows from the workbench and recomputed
+  posteriors now move the router's priors; the LLM intent parser fills the routing primitives
+  from the brief; filings route to a keyless EDGAR provider; known-URL briefs run real
+  extraction (Tavily Extract / Exa contents); the eval set is 51 routing cases.
 
 ## Where to go next in the codebase
 
