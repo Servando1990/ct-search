@@ -1,8 +1,8 @@
 # Edna Search
 
-A Python-first research and enrichment workbench for placement agents and private-capital teams.
+Smart order routing for private-capital research — a Python-first research and enrichment desk for placement agents and capital-formation teams. Full spec: [docs/spec.md](docs/spec.md).
 
-The app lets users upload a CSV/XLSX contact list or describe a natural-language search, route the job to the best search provider by cost, speed, or confidence, then export the result as CSV or PDF.
+Zero-config by design: write a plain-English brief (and/or attach a CSV/XLSX contact list) and the router decides everything — which search venue, in which shape (search, extraction, deep research, SEC filings), with what evidence standard — then returns cited, confidence-scored rows you can review and export as CSV or PDF. Tuning controls exist but are never required.
 
 ## Architecture
 
@@ -40,7 +40,7 @@ npm run dev
 
 Then open [http://127.0.0.1:3000](http://127.0.0.1:3000) for the launch page or [http://127.0.0.1:3000/workbench](http://127.0.0.1:3000/workbench) for the product workbench.
 
-Without API keys, the app runs in demo mode so the workflow is still testable. Add keys from `.env.example` to enable live providers.
+Without API keys the web venues run in demo mode so the workflow is still testable — and **filings briefs are live anyway**: the EDGAR venue is keyless, so a brief like "Form D filings from healthcare fund sponsors" returns real SEC filings with sec.gov citations at $0. Add keys from `.env.example` to take the other venues (and the LLM intent parser) live.
 
 ## Provider Routing
 

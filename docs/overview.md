@@ -18,15 +18,19 @@ The core innovation is the **router**: it does not "pick the best vendor." It pi
 if we're wrong). Vendor capability is a *prior with provenance and expiry*, continuously
 calibrated by Edna's own telemetry — never hardcoded routing law.
 
-Implementation has shipped in four backend PRs plus a UI redesign:
+Implementation shipped in four backend PRs, then the phase 1–3 roadmap on top
+(full ledger with commits: [spec.md](spec.md) §3):
 
 | Stage | What landed |
 |---|---|
 | **PR1** | Request primitives (`job_type`, `source_shape`, `evidence_risk`, `freshness_days`, `scale_hint`), evidence-risk floor, source-shape gating, freshness penalty, waterfall emission |
 | **PR2** | `CapabilityMetric` with vendor-reported provenance + expiry; `ProviderEconomics`; **cost-per-grounded-row** (not per-request price); depth-aware Parallel processor escalation |
-| **PR3** | Logfire telemetry (one span per route plan) + JSONL sink, `/api/telemetry/outcome` hook, 13-case eval harness, nightly score-recompute job, provenance chips in UI |
+| **PR3** | Logfire telemetry (one span per route plan) + JSONL sink, `/api/telemetry/outcome` hook, eval harness, score-recompute job, provenance chips in UI |
 | **PR4** | **Plan executor made real** — walks every step (primary → fallback → verifier → synthesis), per-row `via {provider} · {step_role}` attribution, `verified` flag on independent agreement, flows through table + CSV/PDF |
-| **UI redesign** | Unified both surfaces onto the design-system green palette (killed the off-brand cream workbench), removed repeated section kickers + de-templated cards on the landing, flattened workbench nested cards into open columns with dividers |
+| **Phase 1** | **The routing desk**: prompt-first workbench (one composer, tuning behind progressive disclosure, execution report after the run), LLM intent parser filling the request primitives from the brief, outcome telemetry wired from keep/drop + export |
+| **Phase 2** | **Async runs**: SSE progress streaming with live step rail, SQLite persistence + run history, per-run budget caps, live enrichment on by default behind the cap |
+| **Phase 3** | **Data-backed router**: calibration posteriors applied at routing time, keyless EDGAR filings venue, known_url extraction route (Tavily Extract / Exa contents), Perplexity deep-research escalation, 51-case eval (which caught and fixed a missing high-risk verifier on synthesis routes) |
+| **Phase 4 (specced)** | Search & match — identity resolution + thesis/deal-investor matching ([match-spec.md](match-spec.md)) |
 
 ## Value proposition
 
@@ -59,34 +63,37 @@ Three differentiators that competitors don't combine:
 ## User journey
 
 ```
- LANDING (/)                                WORKBENCH (/workbench)
+ LANDING (/)                                WORKBENCH — the routing desk
 ╭───────────────────────╮                 ╭───────────────────────────────────╮
-│ 1. See the claim +     │   "Open         │ 2. INPUT: paste a brief OR upload  │
-│    product proof frame │    workbench"   │    a CSV/XLSX contact list         │
-│    (brief→route→cost→  │ ───────────────▶│    choose enrichment fields        │
-│    confidence→rows)    │                 ╰─────────────────┬─────────────────╯
-╰───────────────────────╯                                   │
+│ 1. See the claim +     │   "Open         │ 2. BRIEF: one composer — write the │
+│    product proof frame │    workbench"   │    brief and/or attach a CSV/XLSX. │
+│    (brief→route→cost→  │ ───────────────▶│    Nothing else required; tuning   │
+│    confidence→rows)    │                 │    (risk/venue/fields) is optional │
+╰───────────────────────╯                 ╰─────────────────┬─────────────────╯
+                                                            │
                                                             ▼
                           ╭─────────────────────────────────────────────────╮
-                          │ 3. ROUTE: pick best / cost / speed / confidence  │
-                          │    set evidence risk (low / medium / high)       │
-                          │    or override the provider manually             │
+                          │ 3. INTENT: Edna reads the brief → job_type,      │
+                          │    source_shape, evidence_risk, freshness,      │
+                          │    fields (LLM; keyword fallback without a key) │
                           ╰─────────────────┬───────────────────────────────╯
                                             ▼
                           ╭─────────────────────────────────────────────────╮
-                          │ 4. RUN → executor walks the plan:                │
-                          │    primary → fallback → verifier → synthesis     │
+                          │ 4. RUN (async) → live step rail as the executor │
+                          │    walks primary → fallback → verifier →        │
+                          │    synthesis, under the per-run budget cap      │
                           ╰─────────────────┬───────────────────────────────╯
                                             ▼
                           ╭─────────────────────────────────────────────────╮
-                          │ 5. REVIEW: cited rows + per-row attribution      │
-                          │    (parallel · primary · ✓ verified · +exa),     │
-                          │    confidence, advisor plan, cost + latency      │
+                          │ 5. REVIEW: execution report (strategy, steps,   │
+                          │    venue scores, caveats, signal provenance) +  │
+                          │    cited rows with per-row attribution          │
                           ╰─────────────────┬───────────────────────────────╯
                                             ▼
                           ╭─────────────────────────────────────────────────╮
-                          │ 6. EXPORT CSV / PDF  → outcome telemetry feeds   │
-                          │    the calibration loop (accept/reject/export)   │
+                          │ 6. KEEP/DROP + EXPORT CSV/PDF → outcomes feed   │
+                          │    the calibration loop; runs persist and       │
+                          │    reopen from Recent runs                      │
                           ╰─────────────────────────────────────────────────╯
 ```
 
@@ -101,28 +108,37 @@ Three differentiators that competitors don't combine:
                                              ▼
 ╭──────────────────────────── BACKEND (FastAPI · src/ct_search) ─────────────────────╮
 │                                                                                     │
-│  main.py ── API ──▶ providers.py  run_research()  [PR4 executor]                    │
-│                          │                                                          │
-│        ┌─────────────────┼──────────────────────────────────────┐                  │
-│        ▼                 ▼                          ▼             ▼                  │
-│  ROUTER (rank by    provider_knowledge.py     PLAN EXECUTOR   telemetry.py [PR3]    │
-│  task-conditional   11-axis CapabilityMetric  primary→        log_route_plan()      │
-│  capability mask)   + provenance/expiry       fallback→       ├─ Logfire span       │
-│   job_type ×        + ProviderEconomics       verifier→       └─ output/telemetry   │
-│   source_shape ×    (tokens, match-rate)      synthesis            .jsonl           │
-│   evidence_risk                                                                     │
+│  main.py ── /api/runs (async + SSE) · /api/research (sync) ────────┐                │
+│      │                                                             │                │
+│      ▼                                                             ▼                │
+│  runs.py (asyncio task per run, event fanout) ──▶ store.py (SQLite: runs + events)  │
+│      │                                                                              │
+│      ▼                                                                              │
+│  intent.py — brief → job_type · source_shape · evidence_risk · freshness · fields   │
+│  (Claude structured outputs; keyword heuristics without a key; operator wins)       │
+│      │                                                                              │
+│      ▼                                                                              │
+│  providers.py  choose_provider() + run_research() executor                          │
+│        │                 │                          │             │                 │
+│        ▼                 ▼                          ▼             ▼                 │
+│  ROUTER (R1–R8,     provider_knowledge.py     PLAN EXECUTOR   telemetry.py          │
+│  task-conditional   capability priors +       primary→        log_route_plan()      │
+│  capability mask)   provenance/expiry +       fallback→       ├─ Logfire span       │
+│   job_type ×        calibration OVERRIDES     verifier→       └─ output/telemetry   │
+│   source_shape ×    from metric_overrides     synthesis            .jsonl           │
+│   evidence_risk     .json (posteriors)        (budget-capped)                       │
 │        │                                                              │             │
 │        ▼                                                              ▼             │
 │  RoutePlan (ordered steps + cost_per_grounded_row)        /api/telemetry/outcome    │
 │                                                                       │             │
-│  providers: Parallel · Exa · Tavily · Brave · Perplexity              ▼             │
-│  (demo mode when no API key)                          eval/recompute_scores.py      │
-│                                                       → output/metric_overrides.json│
-│  exports: CSV · PDF                                   eval/run_eval.py (13 cases)    │
+│  venues: Parallel · Exa · Tavily · Brave · Perplexity ·               ▼             │
+│  EDGAR (keyless, filings) — demo mode for unkeyed venues  eval/recompute_scores.py  │
+│  extraction: Tavily Extract / Exa contents (known_url)   → metric_overrides.json    │
+│  exports: CSV · PDF                                    eval/run_eval.py (51 cases)  │
 ╰─────────────────────────────────────────────────────────────────────────────────────╯
                           ▲                                         │
-                          └──────── weekly recompute updates ───────┘
-                                    vendor priors from real outcomes
+                          └──────── recompute updates venue ────────┘
+                                    priors from real outcomes
 ```
 
 ## Routing decision flow (the heart of it)
@@ -181,11 +197,15 @@ ResearchRequest (job_type, source_shape, evidence_risk, freshness_days, scale_hi
 
 | Concern | File |
 |---|---|
+| Product spec + status ledger | [docs/spec.md](spec.md) |
 | Routing spec (canonical) | [docs/decision-framework.md](decision-framework.md) |
+| Search & match (Phase 4 spec) | [docs/match-spec.md](match-spec.md) |
 | Router + plan executor | [src/ct_search/providers.py](../src/ct_search/providers.py) |
-| Provider priors + provenance | [src/ct_search/provider_knowledge.py](../src/ct_search/provider_knowledge.py) |
+| Intent parsing (brief → primitives) | [src/ct_search/intent.py](../src/ct_search/intent.py) |
+| Async runs + persistence | [src/ct_search/runs.py](../src/ct_search/runs.py), [src/ct_search/store.py](../src/ct_search/store.py) |
+| Provider priors + provenance + overrides | [src/ct_search/provider_knowledge.py](../src/ct_search/provider_knowledge.py) |
 | API models | [src/ct_search/models.py](../src/ct_search/models.py) |
 | Telemetry + calibration | [src/ct_search/telemetry.py](../src/ct_search/telemetry.py), [src/ct_search/eval/](../src/ct_search/eval/) |
 | Landing page | [frontend/src/app/page.tsx](../frontend/src/app/page.tsx) |
-| Workbench | [frontend/src/components/Workspace.tsx](../frontend/src/components/Workspace.tsx) |
-| Design system | [DESIGN.md](../DESIGN.md), [frontend/src/app/globals.css](../frontend/src/app/globals.css) |
+| Workbench (the routing desk) | [frontend/src/components/Workspace.tsx](../frontend/src/components/Workspace.tsx) |
+| Design system | [DESIGN.md](../DESIGN.md), [frontend/src/app/desk.css](../frontend/src/app/desk.css), [frontend/src/app/globals.css](../frontend/src/app/globals.css) |

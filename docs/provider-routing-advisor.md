@@ -1,6 +1,11 @@
 # Provider Routing Advisor
 
-Last researched: 2026-05-21
+> **Historical design record** (researched 2026-05-21). Kept for the provider
+> evidence and pricing citations. The routing system has since moved well past
+> this plan — multi-step execution, intent parsing, async runs, budget caps,
+> EDGAR, and calibration are all live. Current truth lives in
+> [decision-framework.md](decision-framework.md) (rules) and
+> [spec.md](spec.md) (status).
 
 This document records the first implementation plan for routing Edna Search jobs to either a
 single vendor or a small vendor mix based on the user's prompt, uploaded rows, requested fields,

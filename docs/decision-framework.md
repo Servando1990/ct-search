@@ -2,7 +2,9 @@
 
 This is the canonical mental model the routing layer is built against. It supersedes ad-hoc routing rules in code review. When the code and this document disagree, fix the code or update this document — never silently diverge.
 
-Status: **PR1 + PR2 + PR3 + PR4 shipped.** PR1 implements the request primitives, evidence-risk floor, source-shape gating, freshness penalty, and waterfall emission. PR2 adds capability-score provenance, cost-per-grounded-row (with miss-rate decay across waterfall steps and downstream-token cost), and depth-aware Parallel processor escalation. PR3 wires Logfire-instrumented telemetry, a JSONL calibration sink, the `/api/telemetry/outcome` hook, an Edna-native eval harness, and the nightly score-recompute job. UI shows per-axis `[origin, score]` provenance chips with stale-prior badges. **PR4 makes the plan real**: the executor walks every `route.steps` entry (primary → fallback → verifier → synthesis), runs non-Parallel enrichment via targeted per-row search, merges results without overwriting primary values, marks rows `verified` when an independent provider agrees, and surfaces per-row `via {provider} · {step_role}` attribution in the table and CSV/PDF exports.
+Status: **PR1 + PR2 + PR3 + PR4 shipped**, plus the phase-1→3 roadmap on top of them (see [spec.md](spec.md) for the full status ledger). PR1 implements the request primitives, evidence-risk floor, source-shape gating, freshness penalty, and waterfall emission. PR2 adds capability-score provenance, cost-per-grounded-row (with miss-rate decay across waterfall steps and downstream-token cost), and depth-aware Parallel processor escalation. PR3 wires Logfire-instrumented telemetry, a JSONL calibration sink, the `/api/telemetry/outcome` hook, an Edna-native eval harness, and the score-recompute job. **PR4 makes the plan real**: the executor walks every `route.steps` entry (primary → fallback → verifier → synthesis), merges results without overwriting primary values, marks rows `verified` on independent agreement, and surfaces per-row `via {provider} · {step_role}` attribution through table and exports.
+
+Since PR4, the framework gained: **LLM intent parsing** (`intent.py` fills the five request primitives from the brief; operator values always win; keyword heuristics are the no-key fallback), **async runs** with SSE progress, SQLite persistence, and per-run budget caps (`CT_SEARCH_MAX_RUN_BUDGET_USD` gates live steps only), **calibration overrides applied at routing time** (`provider_knowledge()` reads `output/metric_overrides.json`, so posteriors actually move the ranking), a **keyless EDGAR filings venue** (R2/R4 below), a wired **known_url extraction route** (Tavily Extract / Exa contents), Perplexity **deep-research escalation** (sonar → sonar-pro), and a **51-case eval set**. The high-risk verifier now also applies to synthesis routes (R8 note).
 
 ## Thesis
 
@@ -64,13 +66,13 @@ Edna is **not** a Preqin / PitchBook / Crunchbase / SEC EDGAR / CRM replacement.
 Each rule has an explicit trigger so it can be unit-tested.
 
 - **R1.** `evidence_risk == "high"` AND no eligible provider supports citations + confidence ⇒ fail loudly with an actionable error. Do not silently fall back.
-- **R2.** `source_shape == "serp_vertical"` ⇒ only SERP-class providers are eligible as primary. Today's vendor set has none — surface this as a clear caveat in the route reason.
+- **R2.** Architecture filter, both directions. `source_shape == "serp_vertical"` ⇒ only SERP-class providers are eligible as primary; today's vendor set has none — surface a clear caveat. And the inverse: **specialist venues only compete inside their shape** — EDGAR (keyless, hence always "available") is eligible only when `source_shape == "filings"`, otherwise the prefer-available promotion would route every open-web job to a filings index in key-less environments (`_eligible_for_shape`).
 - **R3.** `source_shape == "similar_to"` ⇒ semantic providers (Exa-class) move to the top of the ranking regardless of freshness. Resolves the Exa FreshQA tension.
-- **R4.** `source_shape == "filings"` ⇒ prefer providers that fetch SEC/regulatory directly over news-wrapping providers [vendor-reported, Parallel, 2026-05].
+- **R4.** `source_shape == "filings"` ⇒ the primary source wins: **EDGAR full-text search is wired and preferred** (filings axis weighted 0.45, 1.35× shape multiplier), Parallel direct-fetch second, news-wrappers softly penalized. Form ADV is on IAPD, not EDGAR — documented as a tradeoff, not silently absorbed.
 - **R5.** `job_type == "discover"` with `source_shape == "open_web"` ⇒ FindAll-class (Parallel) is the only eligible primary. Static databases and SERP APIs cannot answer "companies that did X in last N months."
 - **R6.** `job_type == "enrich"` AND `scale_hint.rows >= 50` ⇒ the route plan must include ≥1 fallback step (waterfall), motivated by per-provider match-rate ceiling.
 - **R7.** `job_type == "monitor"` ⇒ route through fresh-raw-search providers; expensive deep-research processors are ineligible (wrong tool, wrong economics).
-- **R8.** `job_type == "brief"` ⇒ emit `retrieve_then_synthesize` with a different vendor on each leg (diversifies failure mode).
+- **R8.** `job_type == "brief"` ⇒ emit `retrieve_then_synthesize` with a different vendor on each leg (diversifies failure mode). At `evidence_risk == "high"`, an independent verification step is inserted **before** the synthesis leg — the brief may only cite what survived the check (caught by the 51-case eval; R1 has no synthesis exception).
 - **F1.** Freshness penalty: ranking weight `*= clamp(1 - max(0, target_age_days / freshness_days), 0.2, 1.0)`. Applies only when `freshness_days` is set.
 - **F2.** Override: `source_shape == "similar_to"` or user explicitly chose semantic discovery suspends the freshness penalty (Exa's FreshQA 24% [vendor-reported, Parallel, 2026-05] does not apply when the job isn't time-bound).
 - **C1.** Cost ranking uses `cost_per_grounded_row` (search + extraction + downstream tokens + miss-rate-adjusted fallback + verifier-triggered cost), not per-request price. _Implemented in PR2_: each `RouteStep` and the overall `RoutePlan` carry `estimated_cost_per_grounded_row`; waterfall plans accumulate with residual-miss-rate decay so fallback costs are weighted by `(1 − match_rate)^n`. Verifier steps weighted at ~30% of grounded rows; synthesis steps amortized once per grounded set.
@@ -87,9 +89,10 @@ Different layers, mostly complementary, NOT substitutable.
 | RAG-shaped aggregation | Tavily | `(brief, open_web, low)` prototyping |
 | Independent SERP-style web | Brave | `(monitor, open_web, low-medium)`, fallback role |
 | Multi-engine SERP scraper | SerpAPI-class (not wired) | `(extract, serp_vertical, *)` |
-| Bundled search + LLM | Perplexity Sonar | `(brief, open_web, low-medium)` synthesis leg only |
+| Bundled search + LLM | Perplexity Sonar / sonar-pro | `(brief, open_web, low-medium)` synthesis leg; sonar-pro on deep-research profiles |
 | Agentic multi-hop | Parallel Task | `(enrich/research/verify, *, medium-high)` |
-| URL → structured extraction | Parallel Extract (not wired) | `(extract, known_url, *)` |
+| URL → content extraction | **Tavily Extract / Exa contents (wired)** | `(extract, known_url, *)` — Parallel Extract still unwired |
+| Regulatory filings (primary source) | **SEC EDGAR FTS (wired, keyless)** | `(any, filings, *)` — shape-gated by R2 |
 | Event monitoring | Parallel Monitor (not wired) | `(monitor, event_stream, *)` |
 | Static enrichment DB | PitchBook/Preqin/Crunchbase | Out of Edna's scope |
 
@@ -116,8 +119,8 @@ Each is `request → route plan`.
 3. **"Diligence Acme Capital — competitive position, team, churn signals"**
    `(research, open_web, high, freshness_days=30)` → Parallel Task (pro) primary with per-field citations → Perplexity Sonar synthesis leg → independent verifier on every claim with confidence < 0.80.
 
-4. **"Pull SEC ADV-2 facts for these 50 RIAs"**
-   `(extract, filings, high, rows=50)` → today: clear "needs Extract/EDGAR layer" caveat; tomorrow: Parallel Extract as schema enforcer.
+4. **"Pull SEC filings facts for these 50 RIAs"**
+   `(extract, filings, high, rows=50)` → EDGAR primary (keyless, primary-source citations) → verifier per R1. Form ADV specifics remain an honest caveat (IAPD is a separate system).
 
 5. **"Alert me when any portfolio company executive changes"**
    `(monitor, event_stream, medium)` → today: clear "event_stream needs Monitor API" caveat; tomorrow: Parallel Monitor.
@@ -140,14 +143,29 @@ Each is `request → route plan`.
 
 ## What the current code is still missing
 
-PR3 closed the calibration loop; PR4 closed the executor gap. The remaining gaps are deliberate product decisions, not framework holes:
+The remaining gaps are deliberate product decisions, not framework holes (full
+status ledger: [spec.md](spec.md) §3; closed items that used to live in this
+list — UI outcome posting, known_url extraction, filings venue, eval scale,
+calibration application — are recorded there):
 
-- **`source_shape` / `freshness_days` / `scale_hint` are still backend-only.** They route correctly via the API and are surfaced on result chips after a run, but the workbench has no operator-facing control for them yet. This is the next UX win.
-- **No SerpAPI-class, Parallel Extract, or Parallel Monitor providers wired.** Edge jobs (`serp_vertical`, `known_url`, `event_stream`) currently fail loudly with caveats per R2/architecture filter. Wire when the workflow justifies the integration cost.
-- **Workbench does not yet POST to `/api/telemetry/outcome` automatically.** The endpoint and shape are live; the UI hook (accept/reject buttons + export pings) is the only missing front-end wire.
-- **Recompute job runs on-demand only.** Schedule (`cron`, GH Actions, Prefect) is a deployment choice, not a code choice. Spec target cadence is weekly.
-- **Eval set is 13 cases.** Spec target is 50–100; this is seed coverage and is expected to grow as operators flag misroutes.
-- **Non-Parallel enrichment is heuristic.** `_targeted_search_enrichment` runs a real per-row search via Brave/Exa/Tavily/Perplexity and captures cited snippets into `source_notes` / `recent_signal`, but it can't fill arbitrary structured fields the way Parallel Task can. The merge step preserves primary values and only fills blanks, so the worst case is "fallback adds an independent citation"; the best case is "fallback fills a previously-empty field." This is honest until we add a small extraction step.
+- **`source_shape` / `freshness_days` / `scale_hint` have no operator-facing
+  workbench control.** They are now *inferred* from the brief (LLM intent
+  parser, or keyword heuristics without a key) and surfaced on the execution
+  report with provenance — but an operator cannot yet override them per-run in
+  the UI, only via the API.
+- **No SerpAPI-class or Parallel Monitor providers wired.** `serp_vertical`
+  and `event_stream` jobs fail loudly with caveats per R2.
+- **Recompute job runs on-demand only.** Schedule (cron, GH Actions, Prefect)
+  is a deployment choice. Spec target cadence is weekly.
+- **Eval asserts routing decisions, not result quality.** 51 cases cover the
+  rule surface; graded side-by-side vendor output on live keys is the next
+  calibration milestone.
+- **Non-Parallel enrichment is citation-capturing.** `_targeted_search_enrichment`
+  fills blanks with cited snippets but can't fill arbitrary structured fields
+  the way Parallel Task can. Honest until a small extraction step is added.
+- **Match is string-naive.** Row merging keys on input-string equality; the
+  identity/thesis matching layer is specced in [match-spec.md](match-spec.md)
+  (Phase 4) and not yet built.
 
 ## Data model — request + plan
 
@@ -172,10 +190,11 @@ class ResearchRequest(BaseModel):
     routing_mode: RoutingMode = "best"
     provider: ProviderId | None = None
     max_results: int = Field(default=8, ge=1, le=25)
-    # PR1 additions (all optional; inferred from existing fields when omitted)
+    # PR1 additions (all optional; unset values are filled by the intent
+    # parser — LLM when ANTHROPIC_API_KEY is present, heuristics otherwise)
     job_type: JobType | None = None
     source_shape: SourceShape = "open_web"
-    evidence_risk: EvidenceRisk = "medium"
+    evidence_risk: EvidenceRisk | None = None  # None ⇒ infer; router treats missing as "medium"
     freshness_days: int | None = None
     scale_hint: ScaleHint | None = None
 ```
@@ -198,7 +217,7 @@ Cadence: daily ops metrics, weekly score adjustments from telemetry, monthly eva
 ## Open risks & falsification
 
 - **Vendor-reported numbers may overstate real private-capital performance.** Falsified if Edna eval shows materially different ranking after 90 days of traffic.
-- **`evidence_risk` may be misclassified from natural language.** For now it's an explicit operator control. Falsified if users frequently override route plans.
+- **`evidence_risk` may be misclassified from natural language.** It is now inferred by the LLM intent parser (operator override always wins, and provenance is shown on the report). Falsified if operators frequently re-tune the inferred risk or override route plans.
 - **Waterfalls may raise cost without improving accepted rows.** Falsified if fallback rows have low acceptance/export rates.
 - **Freshness penalties may underuse good semantic providers.** Falsified if Exa-like routes perform well on fresh Edna evals.
 - **Static databases may matter more than expected for customer workflows.** Falsified if users repeatedly request baseline fund/contact fields rather than live-web augmentation.

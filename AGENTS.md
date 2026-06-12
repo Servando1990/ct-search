@@ -16,16 +16,16 @@ Keep Python on the backend. TypeScript is expected and preferred in the frontend
 
 ## Product Context
 
-This is a commercial SaaS-style research and enrichment tool for placement agents and private-capital teams. Keep the public launch page and working product surface separate: `/` explains and converts, while `/workbench` stays the dense operator workflow.
+This is a commercial SaaS-style research and enrichment tool for placement agents and private-capital teams — "the OpenRouter for search agents, with the router as the core offering." Keep the public launch page and working product surface separate: `/` explains and converts, while `/workbench` is the routing desk. Full product spec and status: `docs/spec.md`.
 
-Core workflow:
+Core workflow (zero-config by design):
 
-1. Upload a CSV/XLSX contact list or enter a natural-language research brief.
-2. Choose a provider route by best fit, cost, speed, confidence, or manual provider.
-3. Review cited results with confidence and provider attribution.
-4. Export CSV or PDF.
+1. Write a natural-language brief and/or attach a CSV/XLSX contact list. Nothing else is required.
+2. The intent parser (`src/ct_search/intent.py`) fills the routing primitives from the brief; the router plans the run (primary → fallback → verifier → synthesis). Tuning (risk, venue, fields) is progressive disclosure, never a prerequisite. Operator-tuned values always beat inferred ones.
+3. The run executes async with live step progress; the execution report explains the route after the run.
+4. Review cited rows (keep/drop feeds calibration telemetry), export CSV or PDF.
 
-Design context lives in `.impeccable.md`; follow it before making frontend changes.
+Design context lives in `PRODUCT.md` (audience, voice, principles) and `DESIGN.md` (design system); follow both before making frontend changes.
 
 ## Backend Commands
 
@@ -52,7 +52,9 @@ The frontend proxies backend calls through `/backend/*` using `frontend/next.con
 
 ## Implementation Notes
 
-- Provider logic belongs in `src/ct_search/providers.py`.
+- Provider/router logic belongs in `src/ct_search/providers.py`; routing behavior must stay consistent with `docs/decision-framework.md` — when they disagree, fix the code or update the doc, never silently diverge.
+- Intent parsing (brief → routing primitives) belongs in `src/ct_search/intent.py`.
+- Async run management belongs in `src/ct_search/runs.py`; persistence in `src/ct_search/store.py` (SQLite at `output/edna.db`).
 - API models belong in `src/ct_search/models.py`.
 - Frontend API calls belong in `frontend/src/lib/api.ts`.
 - Launch page behavior belongs in `frontend/src/app/page.tsx`.
@@ -67,6 +69,7 @@ Before handing off meaningful changes, run the relevant checks:
 ```bash
 uv run ruff check .
 uv run pytest
+uv run python -m ct_search.eval.run_eval   # 51 routing cases must stay green
 cd frontend && npm run lint && npm run build
 ```
 
