@@ -159,9 +159,15 @@ Commits `c048a76`, `2209b95`, `54b8a52`, `7ddeaf9`, `64d4035`.
   caught and fixed a real rule violation (synthesis routes skipped the
   high-risk verifier).
 
-### Phase 4 — Search & match (NOT started)
-Entity resolution (firm name → domain → people), dedupe against uploaded
-lists/CRM, fuzzy matching. Today row merging keys on naive string equality.
+### Phase 4 — Search & match (specced, not started)
+Full spec: [match-spec.md](match-spec.md). Two layered meanings of "match":
+**identity match** (entity resolution, record linkage, dedupe — the
+infrastructure; today row merging keys on naive string equality) and
+**thesis match** (the product: scoring candidates against a business thesis —
+typically a deal or transaction — with per-criterion cited evidence,
+disqualifiers, and a ranked, defensible outreach list). The operator's "100
+names with Y characteristics" is always an instrument for a transaction
+looking for its counterparty; deal-investor matching is the flagship flow.
 
 ### Phase 5 — SaaS shell (NOT started)
 Auth/accounts, usage metering and billing, CRM-friendly export targets.
