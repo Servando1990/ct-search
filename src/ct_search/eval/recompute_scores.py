@@ -102,15 +102,94 @@ def _posterior(prior: float, prior_conf: float, observed: float, observed_conf: 
     )
 
 
+def _fit_calibration(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Per-band keep rates + a suggested fit threshold from match feedback.
+
+    The operator's keep/drop on a fit-ranked shortlist is them teaching Edna
+    their thesis taste (docs/match-spec.md §2.5). Anything below MIN_SAMPLES is
+    withheld so a couple of clicks can't move the bands.
+    """
+    by_band: dict[str, dict[str, int]] = defaultdict(lambda: {"kept": 0, "dropped": 0})
+    fit_points: list[tuple[float, bool]] = []
+    for row in rows:
+        if row.get("kind") != "user_outcome":
+            continue
+        outcome = row.get("user_outcome") or {}
+        for feedback in outcome.get("match_feedback") or []:
+            decision = feedback.get("decision")
+            if decision not in ("kept", "dropped"):
+                continue
+            band = feedback.get("band_shown") or "unknown"
+            by_band[band]["kept" if decision == "kept" else "dropped"] += 1
+            if feedback.get("fit_shown") is not None:
+                fit_points.append((float(feedback["fit_shown"]), decision == "kept"))
+
+    bands: dict[str, dict[str, float]] = {}
+    total = 0
+    for band, counts in by_band.items():
+        n = counts["kept"] + counts["dropped"]
+        total += n
+        if n < MIN_SAMPLES:
+            continue
+        bands[band] = {
+            "kept": counts["kept"],
+            "dropped": counts["dropped"],
+            "keep_rate": round(counts["kept"] / n, 4),
+            "samples": n,
+        }
+
+    # Suggested threshold: the lowest shown fit above which operators keep ≥50%.
+    suggested: float | None = None
+    if len(fit_points) >= MIN_SAMPLES:
+        fit_points.sort()
+        for floor, _kept in fit_points:
+            at_or_above = [kept for fit, kept in fit_points if fit >= floor]
+            if at_or_above and sum(at_or_above) / len(at_or_above) >= 0.5:
+                suggested = round(floor, 4)
+                break
+    return {"bands": bands, "samples": total, "suggested_fit_threshold": suggested}
+
+
+def _linkage_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Operator merge/keep-separate decisions — ground truth for `link()` thresholds."""
+    merged = separate = 0
+    for row in rows:
+        if row.get("kind") != "dedupe_decision":
+            continue
+        if row.get("decision") == "merged":
+            merged += 1
+        elif row.get("decision") == "separate":
+            separate += 1
+    total = merged + separate
+    return {
+        "merged": merged,
+        "separate": separate,
+        "decisions": total,
+        "merge_rate": round(merged / total, 4) if total else None,
+    }
+
+
 def recompute() -> int:
     rows = read_telemetry()
     if not rows:
         print(f"No telemetry rows at {telemetry_path()}. Nothing to recompute.")
         OVERRIDES.parent.mkdir(parents=True, exist_ok=True)
-        OVERRIDES.write_text(json.dumps({"overrides": {}}, indent=2), encoding="utf-8")
+        OVERRIDES.write_text(
+            json.dumps(
+                {
+                    "overrides": {},
+                    "fit_calibration": _fit_calibration([]),
+                    "linkage": _linkage_stats([]),
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
         return 0
     joined = _join_outcomes(rows)
     samples = _observed_per_provider_axis(joined)
+    fit_calibration = _fit_calibration(rows)
+    linkage = _linkage_stats(rows)
 
     overrides: dict[str, dict[str, dict[str, float]]] = {}
     for (provider, axis), values in samples.items():
@@ -142,8 +221,12 @@ def recompute() -> int:
                     "telemetry_rows": len(rows),
                     "joined_plans": len(joined),
                     "providers_updated": len(overrides),
+                    "fit_feedback_samples": fit_calibration["samples"],
+                    "linkage_decisions": linkage["decisions"],
                 },
                 "overrides": overrides,
+                "fit_calibration": fit_calibration,
+                "linkage": linkage,
             },
             indent=2,
         ),

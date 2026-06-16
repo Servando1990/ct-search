@@ -8,9 +8,12 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-# Route telemetry to a per-test temporary file before importing app modules.
+# Route telemetry + the SQLite store to per-test temp paths, and keep entity
+# resolution offline (no SEC registry fetch), before importing app modules.
 _TMP_TELEMETRY_DIR = tempfile.mkdtemp(prefix="ct-search-tests-")
 os.environ["CT_SEARCH_TELEMETRY_PATH"] = str(Path(_TMP_TELEMETRY_DIR) / "telemetry.jsonl")
+os.environ["CT_SEARCH_DB_PATH"] = str(Path(_TMP_TELEMETRY_DIR) / "edna.db")
+os.environ["CT_SEARCH_ENTITY_REGISTRY"] = "0"
 
 from ct_search.main import app  # noqa: E402
 from ct_search.models import ResearchRequest, ScaleHint  # noqa: E402
@@ -576,3 +579,114 @@ def test_router_uses_speed_fallback_for_fresh_fast_search() -> None:
     assert decision.strategy == "primary_with_fallback"
     assert decision.prompt_profile["latency_sensitive"] is True
     assert decision.steps[0].provider == "brave"
+
+
+# --- Phase 4 — match & identity ---------------------------------------------
+
+
+def test_match_run_demo_produces_fit_ranked_rows() -> None:
+    response = client.post(
+        "/api/research",
+        json={
+            "mode": "enrich",
+            "job_type": "match",
+            "query": "HVAC roll-up, control buyer, $30-60M check. Build the buyer shortlist.",
+            "rows": [
+                {"firm": "Pinnacle Industrial Partners", "website": "pinnacle.com"},
+                {"firm": "Evergreen Growth Capital"},
+            ],
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["route"]["strategy"] == "match_pipeline"
+    assert data["route"]["job_type"] == "match"
+    assert data["thesis"] is not None
+    assert data["thesis"]["criteria"]
+    # Every scored row carries a fit_result and identity provenance.
+    assert data["rows"]
+    for row in data["rows"]:
+        assert row["fit_result"] is not None
+        assert row["match_basis"]
+    # Fit columns are present in the ledger.
+    assert "fit" in data["columns"]
+    assert "match_basis" in data["columns"]
+
+
+def test_match_run_is_ranked_disqualified_last() -> None:
+    response = client.post(
+        "/api/research",
+        json={
+            "mode": "enrich",
+            "job_type": "match",
+            "query": "Sell-side mandate; who are the natural strategic buyers?",
+            "rows": [{"firm": f"Buyer {n}"} for n in range(6)],
+        },
+    ).json()
+    bands = [row["fit_result"]["band"] for row in response["rows"]]
+    # Disqualified candidates sink to the bottom of the shortlist.
+    disqualified_positions = [i for i, b in enumerate(bands) if b == "disqualified"]
+    non_disqualified_positions = [i for i, b in enumerate(bands) if b != "disqualified"]
+    if disqualified_positions and non_disqualified_positions:
+        assert min(disqualified_positions) > max(non_disqualified_positions)
+
+
+def test_dedupe_endpoint_flags_duplicate_rows() -> None:
+    response = client.post(
+        "/api/dedupe",
+        json={
+            "rows": [
+                {"firm": "Pinnacle Industrial Partners", "website": "pinnacle.com"},
+                {"firm": "Evergreen Growth Capital"},
+                {"firm": "Pinnacle Industrial Partners LLC", "website": "pinnacle.com"},
+            ]
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["cluster_count"] == 1
+    assert data["clusters"][0]["row_indices"] == [0, 2]
+    assert data["rows_hash"]
+
+
+def test_dedupe_decision_is_recorded() -> None:
+    response = client.post(
+        "/api/dedupe/decision",
+        json={"rows_hash": "abc123", "row_indices": [0, 2], "decision": "merged"},
+    )
+    assert response.status_code == 200
+    assert response.json()["recorded"] is True
+    rows = read_telemetry()
+    assert any(row.get("kind") == "dedupe_decision" for row in rows)
+
+
+def test_dedupe_decision_rejects_bad_decision() -> None:
+    response = client.post(
+        "/api/dedupe/decision",
+        json={"rows_hash": "abc", "row_indices": [0], "decision": "nonsense"},
+    )
+    assert response.status_code == 400
+
+
+def test_match_outcome_feedback_records_keep_drop() -> None:
+    research = client.post(
+        "/api/research",
+        json={
+            "mode": "enrich",
+            "job_type": "match",
+            "query": "Build a buyer shortlist for this control deal.",
+            "rows": [{"firm": "Atlas Holdings"}],
+        },
+    ).json()
+    response = client.post(
+        "/api/telemetry/outcome",
+        json={
+            "route_plan_id": research["route_plan_id"],
+            "exported": True,
+            "match_feedback": [
+                {"row_id": "0", "fit_shown": 0.82, "band_shown": "strong", "decision": "kept"}
+            ],
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["recorded"] is True
