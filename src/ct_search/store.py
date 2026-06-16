@@ -62,6 +62,12 @@ CREATE TABLE IF NOT EXISTS run_events (
     payload_json TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_run_events_run_id ON run_events (run_id, seq);
+
+CREATE TABLE IF NOT EXISTS entities (
+    key TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    resolved_json TEXT NOT NULL
+);
 """
 
 
@@ -199,6 +205,25 @@ def list_events(run_id: str, after_seq: int = 0) -> list[dict[str, Any]]:
         }
         for row in rows
     ]
+
+
+# --- Entity resolution cache (Phase 4a) ---------------------------------------
+
+
+def get_entity(key: str) -> dict[str, Any] | None:
+    row = _connection().execute(
+        "SELECT resolved_json FROM entities WHERE key = ?", (key,)
+    ).fetchone()
+    return json.loads(row["resolved_json"]) if row else None
+
+
+def put_entity(key: str, resolved: dict[str, Any]) -> None:
+    with _LOCK:
+        _connection().execute(
+            "INSERT OR REPLACE INTO entities (key, created_at, resolved_json) VALUES (?, ?, ?)",
+            (key, _now(), json.dumps(resolved, separators=(",", ":"))),
+        )
+        _connection().commit()
 
 
 def _run_to_dict(row: sqlite3.Row) -> dict[str, Any]:
