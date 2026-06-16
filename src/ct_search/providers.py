@@ -15,30 +15,64 @@ import httpx
 from ct_search.intent import resolve_intent
 from ct_search.models import (
     Evidence,
+    FitResult,
     JobType,
     ProviderId,
     ProviderPublic,
     ResearchRequest,
     ResearchResponse,
+    ResolvedEntity,
     ResultRow,
     RouteDecision,
     RouteStep,
     SourceShape,
+    Thesis,
 )
 from ct_search.provider_knowledge import (
     DOWNSTREAM_TOKEN_PRICE_PER_1K_USD,
     KNOWLEDGE_REVIEWED_AT,
     provider_knowledge,
 )
+from ct_search.resolve import describe_basis, link, resolve_entity, resolve_local
 from ct_search.settings import Settings
 from ct_search.telemetry import (
     StepResult,
     log_route_plan,
     new_route_plan_id,
 )
+from ct_search.thesis import (
+    judge_candidate,
+    resolve_thesis,
+    score_candidate,
+    verdict_glyph,
+)
 
 # Decision-framework thresholds — see docs/decision-framework.md
 WATERFALL_ROW_THRESHOLD = 50  # R6: enrich at scale forces waterfall
+# Phase 4 — match vocabulary (intent fallback) and the per-criterion judge cost
+# used only to surface a pre-run estimate caveat (the live value is a setting).
+MATCH_TERMS: tuple[str, ...] = (
+    "shortlist",
+    "buyer list",
+    "target list",
+    "who should see this deal",
+    "who should i show this deal",
+    "which buyers",
+    "which lps",
+    "which investors",
+    "best buyers for",
+    "match this deal",
+    "fit this deal",
+    "find the counterpart",
+    "natural buyers",
+)
+MATCH_DEFAULT_CRITERIA = 6
+MATCH_TOP_N_VERIFY = 5
+MATCH_MIN_CANDIDATES = 1
+MATCH_SEED_LIMIT = 10
+# Pre-run evidence estimate only — the live per-candidate cost uses the chosen
+# provider's `estimated_search_cost` (the judge rate is always the setting).
+DEFAULT_MATCH_EVIDENCE_COST = 0.007  # ~one routed search per candidate
 HIGH_RISK_CITATION_FLOOR = 0.85  # R1: minimum citation capability for high evidence_risk
 MEDIUM_RISK_CITATION_FLOOR = 0.70  # R1: minimum citation capability for medium evidence_risk
 FRESHNESS_PENALTY_FLOOR = 0.2  # F1: how far the freshness multiplier can drop
@@ -193,7 +227,7 @@ def choose_provider(request: ResearchRequest, settings: Settings) -> RouteDecisi
     fields = max(len(request.fields or DEFAULT_FIELDS), 1)
     prompt_profile = _prompt_profile(request)
     job_type = _resolve_job_type(request)
-    caveats = _framework_caveats(request, job_type, rows)
+    caveats = _framework_caveats(request, job_type, rows, settings)
 
     if request.routing_mode == "manual" and request.provider:
         selected = by_id[request.provider]
@@ -289,11 +323,15 @@ def _resolve_job_type(request: ResearchRequest) -> JobType:
     """Resolve the effective job_type, inferring from legacy mode when unset."""
     if request.job_type is not None:
         return request.job_type
+    # A supplied thesis, or match vocabulary in the brief, means match — this
+    # wins over enrich because a match run also carries a candidate list.
+    text = " ".join([request.query or "", " ".join(request.fields or [])]).lower()
+    if request.thesis is not None or _has_any(text, MATCH_TERMS):
+        return "match"
     # Back-compat inference from the legacy `mode` field.
     if request.mode == "enrich":
         return "enrich"
     # mode == "search": pick the closest job_type from prompt signals.
-    text = " ".join([request.query or "", " ".join(request.fields or [])]).lower()
     if _has_any(text, ("summarize", "brief", "memo", "report", "synthesize")):
         return "brief"
     if _has_any(text, ("monitor", "alert", "watch", "track")):
@@ -310,8 +348,19 @@ def _request_row_count(request: ResearchRequest, fallback_rows: int) -> int:
     return len(request.rows) if request.rows else fallback_rows
 
 
+def _match_cost_per_candidate(
+    criteria: int, judge_per_criterion: float, search_cost: float
+) -> float:
+    """Per-candidate match cost: one evidence search + the judge over criteria.
+
+    Single source of truth for both the pre-run caveat estimate and the live
+    budget cap, so the quoted figure can never drift from what the cap enforces.
+    """
+    return judge_per_criterion * max(criteria, 1) + search_cost
+
+
 def _framework_caveats(
-    request: ResearchRequest, job_type: JobType, rows: int
+    request: ResearchRequest, job_type: JobType, rows: int, settings: Settings
 ) -> list[str]:
     """Surface honest, operator-readable caveats per the decision framework."""
     caveats: list[str] = []
@@ -336,6 +385,23 @@ def _framework_caveats(
         caveats.append(
             f"Enrichment at {row_count} rows exceeds the single-provider match-rate ceiling "
             f"(~50–75% [vendor-reported, 2026]); waterfall fallbacks added to recover null fields."
+        )
+    # Phase 4 — match scoring cost scales with candidates × criteria; surface it
+    # before the run so the budget cap is no surprise (docs/match-spec.md §2.4).
+    if job_type == "match":
+        criteria = (
+            len(request.thesis.criteria)
+            if request.thesis and request.thesis.criteria
+            else MATCH_DEFAULT_CRITERIA
+        )
+        per_candidate = _match_cost_per_candidate(
+            criteria,
+            settings.ct_search_judge_cost_per_criterion_usd,
+            DEFAULT_MATCH_EVIDENCE_COST,
+        )
+        caveats.append(
+            f"Match scoring scales with candidates × criteria (~${per_candidate:.2f} "
+            f"per candidate at {criteria} criteria); the run budget cap applies."
         )
     return caveats
 
@@ -466,8 +532,36 @@ async def run_research(
 
     budget = settings.ct_search_max_run_budget_usd
     spent = 0.0
+    thesis: Thesis | None = None
 
-    for index, step in enumerate(route.steps):
+    # Phase 4 — match runs its own per-candidate pipeline instead of the
+    # row-merge step loop (docs/match-spec.md §2). The route plan still carries
+    # the primary (+ verifier) steps for display and telemetry.
+    if route.job_type == "match":
+        thesis = await resolve_thesis(request, settings)
+        emit(
+            "thesis.resolved",
+            {
+                "kind": thesis.kind,
+                "origin": thesis.origin,
+                "summary": thesis.summary,
+                "criteria": [criterion.key for criterion in thesis.criteria],
+            },
+        )
+        rows, columns, match_warnings, match_demo, step_results = await _run_match(
+            request=request,
+            settings=settings,
+            route=route,
+            thesis=thesis,
+            primary_spec=primary_spec,
+            budget=budget,
+            emit=emit,
+        )
+        warnings.extend(match_warnings)
+        is_demo = is_demo or match_demo
+
+    match_steps = [] if route.job_type == "match" else route.steps
+    for index, step in enumerate(match_steps):
         # The cap gates live spend only — demo steps are free, and skipping
         # them would gut the no-key walkthrough.
         step_live = _spec(step.provider).available(settings)
@@ -624,7 +718,308 @@ async def run_research(
         is_demo=is_demo,
         warnings=warnings,
         route_plan_id=route_plan_id,
+        thesis=thesis,
     )
+
+
+# --- Phase 4 — match pipeline ----------------------------------------------
+
+
+async def _run_match(
+    *,
+    request: ResearchRequest,
+    settings: Settings,
+    route: RouteDecision,
+    thesis: Thesis,
+    primary_spec: ProviderSpec,
+    budget: float,
+    emit: Callable[[str, dict[str, Any]], None],
+) -> tuple[list[ResultRow], list[str], list[str], bool, list[StepResult]]:
+    """Resolve → evidence → judge → score → (verify) → rank, per candidate.
+
+    Returns (rows, columns, warnings, is_demo, step_results).
+    """
+    warnings: list[str] = []
+    providers_live = primary_spec.available(settings)
+    judge_live = bool(settings.anthropic_api_key)
+    is_demo = not providers_live
+
+    candidates = list(request.rows)
+    if not candidates:
+        candidates = await _seed_match_candidates(primary_spec, request, thesis, settings)
+        if candidates:
+            warnings.append(
+                f"No candidate list supplied; seeded {len(candidates)} candidates from a "
+                "discovery search. Upload a list for a complete shortlist."
+            )
+    if not candidates:
+        warnings.append("Match needs candidates: upload a list or broaden the brief.")
+        return [], _match_columns(thesis, []), warnings, is_demo, []
+
+    criteria_count = max(len(thesis.criteria), 1)
+    per_candidate_cost = _match_cost_per_candidate(
+        criteria_count,
+        settings.ct_search_judge_cost_per_criterion_usd,
+        primary_spec.estimated_search_cost,
+    )
+    if providers_live and per_candidate_cost > 0:
+        affordable = max(int(budget / per_candidate_cost), MATCH_MIN_CANDIDATES)
+    else:
+        affordable = len(candidates)
+    scored = candidates[:affordable]
+    if len(candidates) > len(scored):
+        warnings.append(
+            f"Run budget cap (${budget:.2f}) scored the first {len(scored)} of "
+            f"{len(candidates)} candidates at ~${per_candidate_cost:.3f} each."
+        )
+        emit(
+            "budget.capped",
+            {"budget_usd": budget, "scored": len(scored), "total": len(candidates)},
+        )
+    if providers_live and not judge_live:
+        warnings.append(
+            "Evidence gathered but not scored: set ANTHROPIC_API_KEY to judge thesis fit. "
+            "Every criterion shows as unknown until then."
+        )
+
+    emit("match.started", {"candidates": len(scored), "criteria": criteria_count})
+
+    rows: list[ResultRow] = []
+    edgar_used = False
+    for index, candidate in enumerate(scored):
+        entity = await asyncio.to_thread(resolve_entity, candidate, settings)
+        label = _entity_label(candidate, index + 1)
+        citations, fields, used_edgar = await _gather_match_evidence(
+            primary_spec, request, settings, thesis, entity, label
+        )
+        edgar_used = edgar_used or used_edgar
+        verdicts = await judge_candidate(
+            thesis, label, fields, citations, settings, demo=is_demo
+        )
+        fit = score_candidate(thesis, verdicts)
+        rows.append(_match_row(candidate, entity, fit, citations, primary_spec.id))
+        emit(
+            "match.scored",
+            {"index": index, "label": label, "fit": fit.fit, "band": fit.band},
+        )
+
+    verify_count = 0
+    if route.evidence_risk == "high" and providers_live and judge_live:
+        rows, verify_count = await _verify_match_rows(
+            rows, request, settings, thesis, primary_spec
+        )
+
+    rows = _rank_match_rows(rows)
+    columns = _match_columns(thesis, rows)
+
+    step_results = [
+        StepResult(
+            provider=primary_spec.id,
+            role="primary",
+            returned_rows=len(rows),
+            citation_coverage=_citation_coverage(rows),
+            avg_confidence=_avg_confidence(rows),
+            low_confidence_rate=_low_confidence_rate(rows),
+        )
+    ]
+    if edgar_used:
+        step_results.append(
+            StepResult(provider="edgar", role="fallback", returned_rows=len(rows))
+        )
+    if verify_count:
+        step_results.append(
+            StepResult(
+                provider=primary_spec.id, role="verification", returned_rows=verify_count
+            )
+        )
+    return rows, columns, warnings, is_demo, step_results
+
+
+async def _seed_match_candidates(
+    primary_spec: ProviderSpec,
+    request: ResearchRequest,
+    thesis: Thesis,
+    settings: Settings,
+) -> list[dict[str, Any]]:
+    """Discover candidates from the thesis when no list was uploaded (spec §1.1 step 2)."""
+    seed_request = request.model_copy(
+        update={
+            "query": thesis.summary or request.query,
+            "mode": "search",
+            "max_results": MATCH_SEED_LIMIT,
+        }
+    )
+    try:
+        results = await _run_search(primary_spec, seed_request, settings)
+    except Exception:
+        return []
+    candidates: list[dict[str, Any]] = []
+    for row in results[:MATCH_SEED_LIMIT]:
+        title = str(row.fields.get("title") or "").strip()
+        if not title:
+            continue
+        candidates.append({"firm": title, "website": str(row.fields.get("url") or "")})
+    return candidates
+
+
+async def _gather_match_evidence(
+    primary_spec: ProviderSpec,
+    request: ResearchRequest,
+    settings: Settings,
+    thesis: Thesis,
+    entity: ResolvedEntity,
+    label: str,
+) -> tuple[list[Evidence], dict[str, Any], bool]:
+    """Gather per-candidate evidence: routed web search, plus EDGAR when a CIK is known."""
+    evidence_request = request.model_copy(
+        update={
+            "query": _match_evidence_query(thesis, label),
+            "mode": "search",
+            "max_results": 5,
+        }
+    )
+    try:
+        search_rows = await _run_search(primary_spec, evidence_request, settings)
+    except Exception:
+        search_rows = []
+    snippet, citations = _summarize_search_rows(search_rows)
+    fields: dict[str, Any] = {"source_notes": snippet} if snippet else {}
+
+    used_edgar = False
+    if entity.cik:
+        edgar_request = request.model_copy(
+            update={
+                "query": entity.name or label,
+                "mode": "search",
+                "source_shape": "filings",
+                "max_results": 3,
+            }
+        )
+        try:
+            edgar_rows = await _edgar_search(edgar_request, settings)
+        except Exception:
+            edgar_rows = []
+        if edgar_rows:
+            used_edgar = True
+            _filings_snippet, edgar_citations = _summarize_search_rows(edgar_rows)
+            citations = citations + edgar_citations
+            fields["filings"] = "; ".join(
+                str(row.fields.get("title", "")) for row in edgar_rows[:3]
+            )
+    return citations[:8], fields, used_edgar
+
+
+def _match_evidence_query(thesis: Thesis, label: str) -> str:
+    criteria_hint = "; ".join(criterion.description for criterion in thesis.criteria[:4])
+    summary = thesis.summary or "this deal"
+    return _compact(f"{label}: evidence on fit for {summary}. Assess: {criteria_hint}", 300)
+
+
+def _match_row(
+    candidate: dict[str, Any],
+    entity: ResolvedEntity,
+    fit: FitResult,
+    fallback_citations: list[Evidence],
+    provider_id: str,
+) -> ResultRow:
+    basis = describe_basis(entity)
+    fields: dict[str, Any] = {
+        "fit": fit.band,
+        "fit_score": f"{fit.fit:.2f}",
+    }
+    for verdict in fit.verdicts:
+        fields[verdict.key] = verdict_glyph(verdict)
+    fields["match_basis"] = basis
+    fields["disqualifiers"] = "; ".join(fit.disqualifiers)
+
+    union: list[Evidence] = []
+    seen: set[str] = set()
+    for verdict in fit.verdicts:
+        for citation in verdict.citations:
+            if citation.url and citation.url not in seen:
+                union.append(citation)
+                seen.add(citation.url)
+    if not union:
+        union = fallback_citations[:5]
+
+    return ResultRow(
+        input=candidate,
+        fields=fields,
+        confidence=fit.fit,
+        citations=union[:8],
+        provider=provider_id,
+        step_role="match",
+        match_basis=basis,
+        fit_result=fit,
+    )
+
+
+def _rank_match_rows(rows: list[ResultRow]) -> list[ResultRow]:
+    """Fit-ranked, with disqualified candidates sunk to the bottom (still visible)."""
+
+    def sort_key(row: ResultRow) -> tuple[int, float]:
+        fit = row.fit_result
+        disqualified = 1 if (fit and fit.band == "disqualified") else 0
+        return (disqualified, -(fit.fit if fit else 0.0))
+
+    return sorted(rows, key=sort_key)
+
+
+def _match_columns(thesis: Thesis, rows: list[ResultRow]) -> list[str]:
+    input_columns: list[str] = []
+    for row in rows:
+        for key in row.input:
+            key = str(key)
+            if key not in input_columns:
+                input_columns.append(key)
+    criterion_columns = [criterion.key for criterion in thesis.criteria]
+    return [
+        *input_columns,
+        "fit",
+        "fit_score",
+        *criterion_columns,
+        "match_basis",
+        "disqualifiers",
+    ]
+
+
+async def _verify_match_rows(
+    rows: list[ResultRow],
+    request: ResearchRequest,
+    settings: Settings,
+    thesis: Thesis,
+    primary_spec: ProviderSpec,
+) -> tuple[list[ResultRow], int]:
+    """Re-gather and re-judge disqualifiers + top-N (the verifier asymmetry, §1.3).
+
+    A disqualifier that does not reproduce on independent evidence is dropped;
+    surviving rows are flagged `verified` for the ledger.
+    """
+    ranked = _rank_match_rows(rows)
+    targets: set[int] = set()
+    for position, row in enumerate(ranked):
+        fit = row.fit_result
+        if position < MATCH_TOP_N_VERIFY or (fit and fit.disqualifiers):
+            targets.add(id(row))
+
+    updated: list[ResultRow] = []
+    verified = 0
+    for row in rows:
+        if id(row) not in targets:
+            updated.append(row)
+            continue
+        entity = await asyncio.to_thread(resolve_entity, row.input, settings)
+        label = _entity_label(row.input, 1)
+        citations, fields, _used_edgar = await _gather_match_evidence(
+            primary_spec, request, settings, thesis, entity, label
+        )
+        verdicts = await judge_candidate(thesis, label, fields, citations, settings)
+        fit = score_candidate(thesis, verdicts)
+        new_row = _match_row(row.input, entity, fit, citations, primary_spec.id)
+        new_row.verified = True
+        updated.append(new_row)
+        verified += 1
+    return updated, verified
 
 
 # --- PR4 plan-execution helpers --------------------------------------------
@@ -667,15 +1062,17 @@ def _merge_enrichment_rows(
 ) -> list[ResultRow]:
     """Overlay supplement field values onto primary rows wherever primary is blank.
 
-    Match by `input` row identity (the original input dict). Preserves
-    primary's provider attribution for its non-blank fields; appends
-    supplement provider to `contributing_providers` when any field was filled.
+    Phase 4 — rows are matched by resolved-entity `link()` verdict (certain or
+    probable), not exact-dict equality, so "KKR & Co." and "KKR & Co. Inc."
+    merge instead of double-counting. Falls back to exact-key matching when a
+    row carries no resolvable identity. Preserves primary's provider
+    attribution for its non-blank fields; appends the supplement provider to
+    `contributing_providers` when any field was filled.
     """
-    supplement_index = {_input_key(row.input): row for row in supplement}
+    supplement_for = _link_supplement_index(primary, supplement)
     merged: list[ResultRow] = []
-    for row in primary:
-        key = _input_key(row.input)
-        supp = supplement_index.get(key)
+    for position, row in enumerate(primary):
+        supp = supplement_for.get(position)
         if supp is None:
             merged.append(row)
             continue
@@ -720,11 +1117,15 @@ def _merge_search_rows(
 def _apply_enrichment_verification(
     rows: list[ResultRow], verified_rows: list[ResultRow]
 ) -> list[ResultRow]:
-    """Mark rows verified when an independent provider agrees on key fields."""
-    by_key = {_input_key(row.input): row for row in verified_rows}
+    """Mark rows verified when an independent provider agrees on key fields.
+
+    Phase 4 — pairs rows to their verifier by resolved-entity `link()`, with
+    exact-key fallback (see `_merge_enrichment_rows`).
+    """
+    verifier_for = _link_supplement_index(rows, verified_rows)
     updated: list[ResultRow] = []
-    for row in rows:
-        verifier = by_key.get(_input_key(row.input))
+    for position, row in enumerate(rows):
+        verifier = verifier_for.get(position)
         if verifier is None:
             updated.append(row)
             continue
@@ -791,6 +1192,42 @@ def _apply_search_verification(
         else:
             updated.append(row)
     return updated
+
+
+def _link_supplement_index(
+    primary: list[ResultRow], supplement: list[ResultRow]
+) -> dict[int, ResultRow]:
+    """Map each primary row position to a supplement row via identity linkage.
+
+    Prefers a `link()` verdict at certain/probable; falls back to exact input
+    equality when either side has no resolvable identity. Each supplement row
+    is consumed at most once.
+    """
+    supplement_entities = [(resolve_local(row.input), row) for row in supplement]
+    used: set[int] = set()
+    mapping: dict[int, ResultRow] = {}
+    for position, primary_row in enumerate(primary):
+        primary_entity = resolve_local(primary_row.input)
+        matched: int | None = None
+        if primary_entity.basis != "none":
+            for supplement_position, (entity, _row) in enumerate(supplement_entities):
+                if supplement_position in used or entity.basis == "none":
+                    continue
+                if link(primary_entity, entity).linked:
+                    matched = supplement_position
+                    break
+        if matched is None:
+            primary_key = _input_key(primary_row.input)
+            for supplement_position, (_entity, row) in enumerate(supplement_entities):
+                if supplement_position in used:
+                    continue
+                if _input_key(row.input) == primary_key:
+                    matched = supplement_position
+                    break
+        if matched is not None:
+            used.add(matched)
+            mapping[position] = supplement_entities[matched][1]
+    return mapping
 
 
 def _field_agreement(left: dict[str, Any], right: dict[str, Any]) -> float:
@@ -1847,6 +2284,10 @@ def _route_strategy(
 ) -> str:
     if request.routing_mode == "manual":
         return "manual"
+    # Phase 4 — match compiles to its own per-candidate pipeline (resolve →
+    # evidence → judge → score → verify), not the row-merge strategies.
+    if job_type == "match":
+        return "match_pipeline"
     # R6 — enrichment at scale forces a waterfall regardless of other signals.
     row_count = _request_row_count(request, rows)
     if (
@@ -1903,6 +2344,31 @@ def _route_steps(
         if item["id"] != selected.id
         and _eligible_for_shape(item["id"], request.source_shape)
     ]
+
+    if strategy == "match_pipeline":
+        # Primary gathers per-candidate evidence; a verifier re-checks
+        # disqualifiers + top-N candidates when the stakes are high (R1).
+        if request.evidence_risk == "high":
+            verifier = _best_alternate(ranked_alternates, settings)
+            if verifier:
+                steps.append(
+                    RouteStep(
+                        provider=verifier.id,
+                        label=verifier.label,
+                        role="verification",
+                        reason=_secondary_step_reason("verification", verifier.id),
+                        trigger=(
+                            "Re-gather evidence and re-judge disqualifying criteria and the "
+                            "top-ranked candidates before the shortlist is exported."
+                        ),
+                        estimated_cost=_estimate_cost(verifier, request, rows, fields),
+                        available=verifier.available(settings),
+                        estimated_cost_per_grounded_row=_cost_per_grounded_row(
+                            verifier, request, rows, fields
+                        ),
+                    )
+                )
+        return steps
 
     if strategy == "waterfall":
         # R6 — emit two fallbacks for null/miss recovery, then a verifier when risk demands it.
