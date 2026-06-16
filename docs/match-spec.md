@@ -1,6 +1,10 @@
 # Search & Match — Phase 4 Spec
 
-> Status: **agreed direction, not yet implemented** (2026-06-12).
+> Status: **implemented** (2026-06-15). Identity layer (`resolve.py`), thesis
+> object + fit scoring (`thesis.py`), the `match` job type and `match_pipeline`
+> strategy in the router/executor, dedupe + fit-feedback APIs, and the match
+> ledger UI are live. See the implementation-plan table in §3 for per-stage
+> landing notes.
 > Companions: [spec.md](spec.md) (product spec & status),
 > [decision-framework.md](decision-framework.md) (canonical routing rules),
 > [overview.md](overview.md) (orientation).
@@ -197,17 +201,19 @@ score_candidate(thesis, entity, evidence_rows) -> FitResult
 
 ## 3. Implementation plan
 
-| Stage | Scope | Depends on |
+| Stage | Scope | Status |
 |---|---|---|
-| **4a — Resolution & linkage** | `resolve.py` (domain + CIK anchors, name normalization), `entities` table, swap executor merging to `link()`, match_basis in ledger | nothing |
-| **4b — Dedupe on upload** | cluster + merge UI in preview, decisions recorded | 4a |
-| **4c — Thesis object + fit scoring** | `Thesis` extraction/editing, evidence-per-criterion routing, LLM judge with citations, ranked ledger + disqualifiers | 4a; ANTHROPIC key for judge |
-| **4d — Fit feedback loop** | extended outcomes, fit recompute pass | 4c |
+| **4a — Resolution & linkage** | `resolve.py` (domain + CIK anchors, name normalization), `entities` table, swap executor merging to `link()`, `match_basis` in ledger | ✅ shipped |
+| **4b — Dedupe on upload** | `dedupe()` clustering, `POST /api/dedupe` + `/api/dedupe/decision`, decisions recorded to telemetry | ✅ shipped (backend + types; preview banner UI is the remaining frontend polish) |
+| **4c — Thesis object + fit scoring** | `Thesis` extraction (`thesis.py`), evidence-per-criterion gathering, LLM judge with citation discipline, ranked ledger + disqualifiers + bands | ✅ shipped (live judge needs `ANTHROPIC_API_KEY`; without it criteria read `unknown`) |
+| **4d — Fit feedback loop** | `match_feedback` on `UserOutcome`, fit-calibration + linkage passes in `recompute_scores.py` | ✅ shipped |
 
-Eval additions per stage: golden resolution pairs (messy name → expected
-domain/CIK), linkage precision/recall on a labeled set, judge calibration via
-validate-evaluator methodology (human-labeled criterion verdicts), and routing
-cases for `job_type: match`.
+Eval coverage: `match` routing cases live in `edna_queries.yaml` (54/54 green);
+golden resolution/linkage pairs in `tests/test_resolve.py`; fit-scoring band +
+disqualifier + unknown-handling assertions in `tests/test_thesis.py`; match-run,
+dedupe, and feedback API tests in `tests/test_app.py`. Still open: judge
+calibration against human-labeled criterion verdicts (validate-evaluator
+methodology) once live-judge traces accumulate.
 
 ## 4. Non-goals (for Phase 4)
 
