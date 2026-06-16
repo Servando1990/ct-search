@@ -24,6 +24,14 @@ class Settings(BaseSettings):
     # SEC EDGAR full-text search is keyless but requires an identifying
     # User-Agent per SEC fair-access policy.
     ct_search_edgar_user_agent: str = "EdnaSearch/0.1 (servando@controlthrive.com)"
+    # Phase 4 — entity resolution registry anchor (SEC company_tickers.json,
+    # keyless). Set to 0 to keep resolution fully offline.
+    ct_search_entity_registry: bool = True
+    # Phase 4 — LLM fit judge for match runs. Reuses the intent model unless
+    # overridden; estimated judge cost per candidate per criterion feeds the
+    # pre-run cost surfacing and the budget cap.
+    ct_search_judge_model: str = "claude-opus-4-8"
+    ct_search_judge_cost_per_criterion_usd: float = 0.0066
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
