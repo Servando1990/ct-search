@@ -74,6 +74,18 @@ class StepResult(BaseModel):
     error_type: str | None = None
 
 
+class MatchRowFeedback(BaseModel):
+    """Per-row keep/drop on a fit-ranked shortlist — the operator teaching Edna
+    their thesis taste (docs/match-spec.md §2.5). Meeting/reply outcomes land in
+    Phase 5 with CRM export."""
+
+    row_id: str
+    fit_shown: float | None = None
+    band_shown: str | None = None
+    decision: str = "kept"  # "kept" | "dropped"
+    reason: str | None = None
+
+
 class UserOutcome(BaseModel):
     """Recorded asynchronously from the workbench after the user reviews."""
 
@@ -81,6 +93,8 @@ class UserOutcome(BaseModel):
     rejected_rows: int | None = None
     exported: bool = False
     edited_fields: int | None = None
+    # Phase 4 — per-row keep/drop on a fit-ranked shortlist.
+    match_feedback: list[MatchRowFeedback] = Field(default_factory=list)
 
 
 class RouteTelemetry(BaseModel):
@@ -225,6 +239,34 @@ def record_user_outcome(route_plan_id: str, outcome: UserOutcome) -> bool:
         edited_fields=outcome.edited_fields,
     )
     _append_raw(update)
+    return True
+
+
+def record_dedupe_decision(
+    rows_hash: str, row_indices: list[int], decision: str, basis: str = ""
+) -> bool:
+    """Record an operator merge/keep-separate decision from upload-preview dedupe.
+
+    Append-only, like user outcomes. The recompute job and future linkage
+    calibration read these to tune `link()` thresholds against ground truth
+    (docs/match-spec.md §2.1: "decisions are operator-confirmed, recorded, and
+    fed to telemetry").
+    """
+    payload = {
+        "occurred_at": datetime.now(UTC).isoformat(),
+        "kind": "dedupe_decision",
+        "rows_hash": rows_hash,
+        "row_indices": row_indices,
+        "decision": decision,  # "merged" | "separate"
+        "basis": basis,
+    }
+    logfire.info(
+        "dedupe_decision {decision} {basis}",
+        decision=decision,
+        basis=basis,
+        row_count=len(row_indices),
+    )
+    _append_raw(payload)
     return True
 
 

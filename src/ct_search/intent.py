@@ -39,6 +39,12 @@ job_type — what the user is doing:
 - discover: find all entities matching criteria ("map every…", "find all…", "build a list of…")
 - enrich: fill fields for known entities (a list is attached, or the brief names
   specific firms/people to complete)
+- match: score a candidate list against a deal/thesis to produce a ranked
+  shortlist ("who should see this deal", "build a buyer list", "which LPs fit
+  this fund", "target list for this mandate"). The brief describes a
+  transaction looking for its counterparty; the answer is a fit-ranked list,
+  not raw facts. Prefer match over enrich/discover whenever the brief frames a
+  deal and asks who fits it.
 - research: open-ended question answering on the live web (default)
 - monitor: watch for new events over time ("alert me", "track", "watch")
 - extract: pull structured content out of a known page or document

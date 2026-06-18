@@ -657,3 +657,49 @@ cases:
     expect:
       strategy: primary_with_fallback
       role_present: [primary, fallback]
+
+  # ------- match (Phase 4) -------
+  - id: match-buyer-shortlist
+    description: Buyer shortlist for a control deal compiles to the match pipeline
+    request:
+      mode: enrich
+      job_type: match
+      query: "$8M EBITDA HVAC roll-up in the Southeast, seeking control buyer, $30-60M check. Build the buyer shortlist."
+      source_shape: open_web
+      evidence_risk: medium
+      rows:
+        - {firm: "Pinnacle Industrial Partners", website: "pinnacle.com"}
+        - {firm: "Evergreen Growth Capital"}
+    expect:
+      strategy: match_pipeline
+      role_present: [primary]
+      caveat_match: "per candidate"
+
+  - id: match-lp-list-inferred
+    description: A who-should-see-this-fund brief infers job_type match without an explicit flag
+    request:
+      mode: enrich
+      query: "First-time $150M industrial services fund — which LPs fit and should see this deal?"
+      evidence_risk: medium
+      rows:
+        - {firm: "State Pension System"}
+        - {firm: "Granite Fund of Funds"}
+    expect:
+      strategy: match_pipeline
+      caveat_match: "per candidate"
+
+  - id: match-high-risk-verifier
+    description: High-risk match adds a verifier step over disqualifiers + top-N
+    request:
+      mode: enrich
+      job_type: match
+      query: "Sell-side mandate: who are the natural strategic buyers? IC will see this list."
+      source_shape: open_web
+      evidence_risk: high
+      rows:
+        - {firm: "Atlas Holdings"}
+        - {firm: "Meridian Capital Group"}
+    expect:
+      strategy: match_pipeline
+      role_present: [primary, verification]
+      caveat_match: "per candidate"

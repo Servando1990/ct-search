@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import hashlib
 import io
 import json
 from collections.abc import AsyncIterator
@@ -23,11 +24,13 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 from ct_search import store
 from ct_search.models import ExportRequest, ResearchRequest, RunDetail, RunSummary
 from ct_search.providers import public_providers, run_research
+from ct_search.resolve import dedupe
 from ct_search.runs import TERMINAL_EVENT_KINDS, get_run_manager
 from ct_search.settings import get_settings
 from ct_search.telemetry import (
     UserOutcome,
     configure_logfire,
+    record_dedupe_decision,
     record_user_outcome,
 )
 
@@ -82,6 +85,43 @@ async def preview_spreadsheet(file: Annotated[UploadFile, File(...)]) -> dict[st
         "columns": [str(column) for column in frame.columns],
         "rows": rows,
     }
+
+
+@app.post("/api/dedupe")
+async def dedupe_preview(payload: dict[str, Any]) -> dict[str, Any]:
+    """Cluster uploaded rows that look like the same entity (upload-preview banner).
+
+    Suggestions only — merges are operator-confirmed via /api/dedupe/decision
+    and never applied here (docs/match-spec.md §1.2, §2.1).
+    """
+    rows = payload.get("rows")
+    if not isinstance(rows, list):
+        raise HTTPException(status_code=400, detail="Provide a `rows` list to dedupe.")
+    clusters = dedupe([row for row in rows if isinstance(row, dict)])
+    return {
+        "rows_hash": _rows_hash(rows),
+        "cluster_count": len(clusters),
+        "clusters": [cluster.model_dump() for cluster in clusters],
+    }
+
+
+@app.post("/api/dedupe/decision")
+async def dedupe_decision(payload: dict[str, Any]) -> dict[str, Any]:
+    """Record an operator merge / keep-separate decision for calibration."""
+    rows_hash = payload.get("rows_hash")
+    row_indices = payload.get("row_indices")
+    decision = payload.get("decision")
+    if not isinstance(rows_hash, str) or not isinstance(row_indices, list):
+        raise HTTPException(status_code=400, detail="rows_hash and row_indices are required.")
+    if decision not in ("merged", "separate"):
+        raise HTTPException(status_code=400, detail="decision must be 'merged' or 'separate'.")
+    record_dedupe_decision(
+        rows_hash=rows_hash,
+        row_indices=[int(index) for index in row_indices],
+        decision=decision,
+        basis=str(payload.get("basis") or ""),
+    )
+    return {"recorded": True}
 
 
 @app.post("/api/research")
@@ -258,6 +298,12 @@ async def export_pdf(request: ExportRequest) -> StreamingResponse:
         media_type="application/pdf",
         headers={"Content-Disposition": 'attachment; filename="edna-search-results.pdf"'},
     )
+
+
+def _rows_hash(rows: list[Any]) -> str:
+    """Stable id for an uploaded row set so dedupe decisions can be joined later."""
+    serialized = json.dumps(rows, sort_keys=True, default=str)
+    return hashlib.sha1(serialized.encode("utf-8")).hexdigest()[:16]
 
 
 def _read_spreadsheet(content: bytes, filename: str) -> pd.DataFrame:

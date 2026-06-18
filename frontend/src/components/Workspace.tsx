@@ -5,7 +5,9 @@ import {
   ArrowDownToLine,
   ArrowUpRight,
   Check,
+  CopyCheck,
   FileSpreadsheet,
+  Layers,
   Loader2,
   Plus,
   RotateCcw,
@@ -18,11 +20,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   createRun,
+  dedupeRows,
   downloadBlob,
   exportResults,
   getProviders,
   getRun,
   listRuns,
+  postDedupeDecision,
   postOutcome,
   previewSpreadsheet,
   runEventsUrl,
@@ -37,8 +41,10 @@ import {
 } from "@/lib/format";
 import type {
   CellValue,
+  DedupeCluster,
   EvidenceRisk,
   InputRow,
+  MatchRowFeedback,
   ProviderId,
   ProviderPublic,
   ResearchPayload,
@@ -209,6 +215,10 @@ export function Workspace() {
 
   const [result, setResult] = useState<ResearchResponse | null>(null);
   const [dropped, setDropped] = useState<ReadonlySet<number>>(new Set());
+  // Upload-preview dedupe: clusters of rows that look like the same entity.
+  // Suggestions only — the operator confirms each merge (docs/match-spec.md §1.2).
+  const [dedupe, setDedupe] = useState<DedupeState | null>(null);
+  const [resolvedClusters, setResolvedClusters] = useState<ReadonlySet<number>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [liveRoute, setLiveRoute] = useState<LiveRoute | null>(null);
@@ -268,6 +278,7 @@ export function Workspace() {
         accepted_rows: total - dropped.size,
         rejected_rows: dropped.size,
         exported: false,
+        match_feedback: buildMatchFeedback(result.rows, dropped),
       });
     }, 1200);
     return () => {
@@ -299,6 +310,9 @@ export function Workspace() {
       setColumns(preview.columns);
       setRowCount(preview.row_count);
       setFileName(preview.filename || file.name);
+      setDedupe(null);
+      setResolvedClusters(new Set());
+      void checkDuplicates(preview.rows);
     } catch (previewError) {
       setError(errorMessage(previewError));
     } finally {
@@ -307,11 +321,49 @@ export function Workspace() {
     }
   }
 
+  async function checkDuplicates(candidateRows: InputRow[]) {
+    // Best-effort: dedupe is a suggestion banner and must never block upload.
+    if (candidateRows.length < 2) return;
+    try {
+      const response = await dedupeRows(candidateRows);
+      if (response.cluster_count > 0) {
+        setDedupe({
+          rowsHash: response.rows_hash,
+          clusters: response.clusters,
+          sourceRows: candidateRows,
+        });
+      }
+    } catch {
+      // Ignore — a failed dedupe just means no banner.
+    }
+  }
+
+  function mergeCluster(clusterIndex: number) {
+    if (!dedupe) return;
+    const cluster = dedupe.clusters[clusterIndex];
+    // Keep the first row in the cluster; drop the rest by object identity so
+    // shrinking `rows` never corrupts the indices of other pending clusters.
+    const drop = new Set(cluster.row_indices.slice(1).map((i) => dedupe.sourceRows[i]));
+    setRows((prev) => prev.filter((row) => !drop.has(row)));
+    setRowCount((prev) => Math.max(prev - drop.size, 0));
+    setResolvedClusters((prev) => new Set(prev).add(clusterIndex));
+    void postDedupeDecision(dedupe.rowsHash, cluster.row_indices, "merged", cluster.basis);
+  }
+
+  function keepClusterSeparate(clusterIndex: number) {
+    if (!dedupe) return;
+    const cluster = dedupe.clusters[clusterIndex];
+    setResolvedClusters((prev) => new Set(prev).add(clusterIndex));
+    void postDedupeDecision(dedupe.rowsHash, cluster.row_indices, "separate", cluster.basis);
+  }
+
   function detachFile() {
     setRows([]);
     setColumns([]);
     setRowCount(0);
     setFileName("");
+    setDedupe(null);
+    setResolvedClusters(new Set());
   }
 
   const stopStreaming = useCallback(() => {
@@ -505,6 +557,7 @@ export function Workspace() {
         accepted_rows: keptRows.length,
         rejected_rows: dropped.size,
         exported: true,
+        match_feedback: buildMatchFeedback(result.rows, dropped),
       });
     } catch (exportError) {
       setError(errorMessage(exportError));
@@ -688,6 +741,15 @@ export function Workspace() {
                   Edit fields
                 </button>
               </p>
+            ) : null}
+
+            {dedupe ? (
+              <DedupeBanner
+                dedupe={dedupe}
+                resolved={resolvedClusters}
+                onMerge={mergeCluster}
+                onKeepSeparate={keepClusterSeparate}
+              />
             ) : null}
 
             {error ? (
@@ -1003,6 +1065,7 @@ export function Workspace() {
                   </button>
                 </div>
               </div>
+              {result.thesis ? <ThesisStrip thesis={result.thesis} /> : null}
               <ResultsTable
                 columns={result.columns}
                 rows={result.rows}
@@ -1241,7 +1304,161 @@ function renderDataCell(column: string, value: CellValue | undefined) {
   if (column === "summary") {
     return <span className="summary-cell">{displayValue(value)}</span>;
   }
+  // Phase 4 — match ledger cells: fit band, per-criterion verdict, provenance.
+  if (column === "fit" && typeof value === "string" && value) {
+    return <FitBandChip band={value} />;
+  }
+  if (column === "match_basis") {
+    return value ? (
+      <span className="basis-cell">{displayValue(value)}</span>
+    ) : (
+      <span className="muted-cell">—</span>
+    );
+  }
+  if (column === "disqualifiers") {
+    return value ? (
+      <span className="disqualifier-cell">{displayValue(value)}</span>
+    ) : (
+      <span className="muted-cell">—</span>
+    );
+  }
+  if (typeof value === "string" && /^[✓✗?]/.test(value)) {
+    return <VerdictChip glyph={value} />;
+  }
   return <span>{displayValue(value)}</span>;
+}
+
+function FitBandChip({ band }: { band: string }) {
+  return <span className={clsx("fit-band", `fit-band--${band}`)}>{band}</span>;
+}
+
+function VerdictChip({ glyph }: { glyph: string }) {
+  const kind = glyph.startsWith("✓") ? "pass" : glyph.startsWith("✗") ? "fail" : "unknown";
+  return (
+    <span className={clsx("verdict-chip", `verdict-chip--${kind}`)} title={glyph}>
+      {glyph}
+    </span>
+  );
+}
+
+function ThesisStrip({ thesis }: { thesis: NonNullable<ResearchResponse["thesis"]> }) {
+  return (
+    <div className="thesis-strip">
+      <div className="thesis-strip__head">
+        <span className="thesis-strip__kind">{formatLabel(thesis.kind)}</span>
+        <p className="thesis-strip__summary">{thesis.summary}</p>
+      </div>
+      <ul className="thesis-strip__criteria">
+        {thesis.criteria.map((criterion) => (
+          <li
+            key={criterion.key}
+            className={clsx(criterion.disqualifying && "is-disqualifying")}
+            title={criterion.description}
+          >
+            {formatLabel(criterion.key)}
+            {criterion.disqualifying ? <span aria-hidden="true"> ⚑</span> : null}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+interface DedupeState {
+  rowsHash: string;
+  clusters: DedupeCluster[];
+  sourceRows: InputRow[];
+}
+
+function DedupeBanner({
+  dedupe,
+  resolved,
+  onMerge,
+  onKeepSeparate,
+}: {
+  dedupe: DedupeState;
+  resolved: ReadonlySet<number>;
+  onMerge: (clusterIndex: number) => void;
+  onKeepSeparate: (clusterIndex: number) => void;
+}) {
+  const pending = dedupe.clusters
+    .map((cluster, index) => ({ cluster, index }))
+    .filter(({ index }) => !resolved.has(index));
+  if (!pending.length) return null;
+  return (
+    <div className="dedupe-banner" role="status">
+      <div className="dedupe-banner__head">
+        <Layers aria-hidden="true" size={15} />
+        <span className="dedupe-banner__title">
+          {pending.length} possible duplicate {pending.length === 1 ? "group" : "groups"}
+        </span>
+        <span className="dedupe-banner__hint">Merge keeps the first row · suggestions only</span>
+      </div>
+      <ul className="dedupe-clusters">
+        {pending.map(({ cluster, index }) => (
+          <li key={index} className="dedupe-cluster">
+            <div className="dedupe-cluster__body">
+              <span className={clsx("dedupe-level", `dedupe-level--${cluster.level}`)}>
+                {cluster.level}
+              </span>
+              <span className="dedupe-cluster__rows">
+                {cluster.row_indices
+                  .map((i) => dedupeRowLabel(dedupe.sourceRows[i]))
+                  .join("  ·  ")}
+              </span>
+              {cluster.evidence ? (
+                <span className="dedupe-cluster__evidence">{cluster.evidence}</span>
+              ) : null}
+            </div>
+            <div className="dedupe-cluster__actions">
+              <button type="button" className="dedupe-merge" onClick={() => onMerge(index)}>
+                <CopyCheck aria-hidden="true" size={13} />
+                Merge
+              </button>
+              <button
+                type="button"
+                className="dedupe-keep"
+                onClick={() => onKeepSeparate(index)}
+              >
+                Keep separate
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+const DEDUPE_LABEL_KEYS = ["firm", "company", "name", "organization", "investor", "lp", "fund"];
+
+function dedupeRowLabel(row: InputRow | undefined): string {
+  if (!row) return "—";
+  for (const key of DEDUPE_LABEL_KEYS) {
+    const value = row[key];
+    if (value != null && String(value).trim()) return String(value);
+  }
+  const first = Object.values(row).find((value) => value != null && String(value).trim());
+  return first != null ? String(first) : "—";
+}
+
+function buildMatchFeedback(
+  rows: ResultRow[],
+  dropped: ReadonlySet<number>,
+): MatchRowFeedback[] {
+  // Only fit-scored rows carry thesis-taste signal; plain enrichment rows don't.
+  return rows.flatMap((row, index) =>
+    row.fit_result
+      ? [
+          {
+            row_id: String(index),
+            fit_shown: row.fit_result.fit,
+            band_shown: row.fit_result.band,
+            decision: dropped.has(index) ? "dropped" : "kept",
+          } satisfies MatchRowFeedback,
+        ]
+      : [],
+  );
 }
 
 function formatColumnLabel(column: string) {

@@ -1,4 +1,6 @@
 import type {
+  DedupeResponse,
+  InputRow,
   OutcomePayload,
   PreviewResponse,
   ProviderPublic,
@@ -28,6 +30,39 @@ export async function previewSpreadsheet(file: File): Promise<PreviewResponse> {
   form.append("file", file);
   const response = await fetch(`${API_BASE}/api/preview`, { method: "POST", body: form });
   return readJson<PreviewResponse>(response);
+}
+
+export async function dedupeRows(rows: InputRow[]): Promise<DedupeResponse> {
+  const response = await fetch(`${API_BASE}/api/dedupe`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rows }),
+  });
+  return readJson<DedupeResponse>(response);
+}
+
+export async function postDedupeDecision(
+  rowsHash: string,
+  rowIndices: number[],
+  decision: "merged" | "separate",
+  basis = "",
+): Promise<void> {
+  // Calibration signal — best-effort, never disturbs the upload flow.
+  try {
+    await fetch(`${API_BASE}/api/dedupe/decision`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        rows_hash: rowsHash,
+        row_indices: rowIndices,
+        decision,
+        basis,
+      }),
+      keepalive: true,
+    });
+  } catch {
+    // Best-effort.
+  }
 }
 
 export async function runResearch(payload: ResearchPayload): Promise<ResearchResponse> {

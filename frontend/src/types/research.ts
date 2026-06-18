@@ -10,7 +10,8 @@ export type RouteStrategy =
   | "primary_with_verification"
   | "retrieve_then_synthesize"
   | "manual"
-  | "waterfall";
+  | "waterfall"
+  | "match_pipeline";
 
 export type RouteStepRole = "primary" | "fallback" | "verification" | "synthesis";
 
@@ -22,7 +23,8 @@ export type JobType =
   | "monitor"
   | "extract"
   | "brief"
-  | "verify";
+  | "verify"
+  | "match";
 
 export type SourceShape =
   | "open_web"
@@ -90,6 +92,49 @@ export interface Evidence {
   excerpt: string;
 }
 
+// Phase 4 — thesis matching (docs/match-spec.md)
+export type ThesisKind = "deal_equity" | "fund_raise" | "sell_side" | "custom";
+export type CriterionCall = "pass" | "fail" | "unknown";
+export type FitBand = "strong" | "possible" | "weak" | "disqualified";
+
+export interface ThesisCriterion {
+  key: string;
+  description: string;
+  weight: number;
+  disqualifying: boolean;
+}
+
+export interface Thesis {
+  kind: ThesisKind;
+  summary: string;
+  criteria: ThesisCriterion[];
+  sector: string | null;
+  geography: string | null;
+  check_size_min_usd: number | null;
+  check_size_max_usd: number | null;
+  structure: string | null;
+  timeline: string | null;
+  origin: IntentOrigin;
+}
+
+export interface CriterionVerdict {
+  key: string;
+  verdict: CriterionCall;
+  confidence: number;
+  citations: Evidence[];
+  note: string;
+  disqualifying: boolean;
+}
+
+export interface FitResult {
+  fit: number;
+  band: FitBand;
+  verdicts: CriterionVerdict[];
+  disqualifiers: string[];
+  known_weight_share: number;
+  rationale: string;
+}
+
 export interface ResultRow {
   input: InputRow;
   fields: Record<string, CellValue>;
@@ -100,6 +145,9 @@ export interface ResultRow {
   step_role: string;
   verified: boolean;
   contributing_providers: string[];
+  // Phase 4 — identity provenance + full fit breakdown for match runs.
+  match_basis?: string;
+  fit_result?: FitResult | null;
 }
 
 export interface RouteDecision {
@@ -166,6 +214,8 @@ export interface ResearchResponse {
   warnings: string[];
   // PR3 — link to telemetry row for user_outcome attachment.
   route_plan_id: string;
+  // Phase 4 — the thesis a match run scored against (extracted or supplied).
+  thesis?: Thesis | null;
 }
 
 export interface PreviewResponse {
@@ -203,12 +253,41 @@ export interface RunEvent {
   payload: Record<string, unknown>;
 }
 
+// Phase 4 — per-row keep/drop on a fit-ranked shortlist.
+export interface MatchRowFeedback {
+  row_id: string;
+  fit_shown?: number | null;
+  band_shown?: string | null;
+  decision: "kept" | "dropped";
+  reason?: string | null;
+}
+
 // PR3 — user outcome signals attached to a route plan for prior recalibration.
 export interface OutcomePayload {
   accepted_rows?: number | null;
   rejected_rows?: number | null;
   exported?: boolean;
   edited_fields?: number | null;
+  // Phase 4 — fit-list feedback feeding calibration.
+  match_feedback?: MatchRowFeedback[];
+}
+
+// Phase 4 — upload-preview dedupe clustering.
+export type MatchLevel = "certain" | "probable" | "review" | "distinct";
+
+export interface DedupeCluster {
+  row_indices: number[];
+  level: MatchLevel;
+  basis: string;
+  score: number;
+  label: string;
+  evidence: string;
+}
+
+export interface DedupeResponse {
+  rows_hash: string;
+  cluster_count: number;
+  clusters: DedupeCluster[];
 }
 
 export interface ResearchPayload {
@@ -225,4 +304,6 @@ export interface ResearchPayload {
   evidence_risk?: EvidenceRisk;
   freshness_days?: number | null;
   scale_hint?: ScaleHint | null;
+  // Phase 4 — optional operator-supplied deal profile; omitted means "extract".
+  thesis?: Thesis | null;
 }
