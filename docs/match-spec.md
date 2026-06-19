@@ -204,7 +204,7 @@ score_candidate(thesis, entity, evidence_rows) -> FitResult
 | Stage | Scope | Status |
 |---|---|---|
 | **4a — Resolution & linkage** | `resolve.py` (domain + CIK anchors, name normalization), `entities` table, swap executor merging to `link()`, `match_basis` in ledger | ✅ shipped |
-| **4b — Dedupe on upload** | `dedupe()` clustering, `POST /api/dedupe` + `/api/dedupe/decision`, decisions recorded to telemetry | ✅ shipped (backend + types; preview banner UI is the remaining frontend polish) |
+| **4b — Dedupe on upload** | `dedupe()` clustering, `POST /api/dedupe` + `/api/dedupe/decision`, decisions recorded to telemetry, upload-preview banner with per-cluster merge / keep-separate | ✅ shipped |
 | **4c — Thesis object + fit scoring** | `Thesis` extraction (`thesis.py`), evidence-per-criterion gathering, LLM judge with citation discipline, ranked ledger + disqualifiers + bands | ✅ shipped (live judge needs `ANTHROPIC_API_KEY`; without it criteria read `unknown`) |
 | **4d — Fit feedback loop** | `match_feedback` on `UserOutcome`, fit-calibration + linkage passes in `recompute_scores.py` | ✅ shipped |
 

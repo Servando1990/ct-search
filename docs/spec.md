@@ -159,15 +159,35 @@ Commits `c048a76`, `2209b95`, `54b8a52`, `7ddeaf9`, `64d4035`.
   caught and fixed a real rule violation (synthesis routes skipped the
   high-risk verifier).
 
-### Phase 4 — Search & match (specced, not started)
-Full spec: [match-spec.md](match-spec.md). Two layered meanings of "match":
-**identity match** (entity resolution, record linkage, dedupe — the
-infrastructure; today row merging keys on naive string equality) and
-**thesis match** (the product: scoring candidates against a business thesis —
-typically a deal or transaction — with per-criterion cited evidence,
-disqualifiers, and a ranked, defensible outreach list). The operator's "100
-names with Y characteristics" is always an instrument for a transaction
-looking for its counterparty; deal-investor matching is the flagship flow.
+### Phase 4 — Search & match (thesis matching) ✅
+Commits `415a546`, `64aa252`, `87de8b9`, `ec49633`, `a8284e8`, `69b8ab5`,
+`19a5a3b` (merged in #2). Full spec: [match-spec.md](match-spec.md).
+
+Two layered meanings of "match": **identity match** (entity resolution, record
+linkage, dedupe — the infrastructure; row merging now keys on a resolved
+canonical identity, not naive string equality) and **thesis match** (the
+product: scoring candidates against a business thesis — typically a deal or
+transaction — with per-criterion cited evidence, disqualifiers, and a ranked,
+defensible outreach list). The operator's "100 names with Y characteristics" is
+always an instrument for a transaction looking for its counterparty;
+deal-investor matching is the flagship flow.
+
+- **4a — Resolution & linkage**: `resolve.py` (domain + CIK anchors, name
+  normalization), `entities` table, executor merging swapped to `link()`,
+  `match_basis` surfaced in the ledger.
+- **4b — Dedupe on upload**: `dedupe()` clustering, `POST /api/dedupe` +
+  `/api/dedupe/decision`, decisions recorded to telemetry; upload-preview
+  dedupe banner with per-cluster merge / keep-separate.
+- **4c — Thesis object + fit scoring**: `Thesis` extraction (`thesis.py`),
+  evidence-per-criterion gathering, LLM judge with citation discipline, ranked
+  ledger with fit bands + disqualifiers (live judge needs `ANTHROPIC_API_KEY`;
+  without it criteria read `unknown`).
+- **4d — Fit feedback loop**: `match_feedback` on `UserOutcome`,
+  fit-calibration + linkage passes in `recompute_scores.py`.
+- New `match` job type routes to a per-candidate `match_pipeline`
+  (resolve → evidence → judge → verify), covered by eval routing cases.
+- Still open: judge calibration against human-labeled criterion verdicts once
+  live-judge traces accumulate (validate-evaluator methodology).
 
 ### Phase 5 — SaaS shell (NOT started)
 Auth/accounts, usage metering and billing, CRM-friendly export targets.
@@ -213,8 +233,8 @@ cd frontend && npm install && npm run dev
 
 ```bash
 uv run ruff check .                          # lint
-uv run pytest                                # 53 tests
-uv run python -m ct_search.eval.run_eval     # 51/51 routing cases
+uv run pytest                                # 81 tests
+uv run python -m ct_search.eval.run_eval     # 54/54 routing cases
 cd frontend && npm run lint && npm run build
 ```
 
