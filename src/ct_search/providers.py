@@ -5,12 +5,14 @@ import hashlib
 import json
 import re
 import time
+import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
+import logfire
 
 from ct_search.intent import resolve_intent
 from ct_search.models import (
@@ -1712,6 +1714,10 @@ async def _edgar_search(request: ResearchRequest, settings: Settings) -> list[Re
             data = await _edgar_fetch(client, {**base_params, "q": query}, settings)
             rows = _edgar_results_to_rows(data, request)
             if rows:
+                if settings.ct_search_edgar_enrich_form_d:
+                    hits = (data.get("hits") or {}).get("hits") or []
+                    sources = [hit.get("_source") or {} for hit in hits[: len(rows)]]
+                    rows = await _enrich_form_d_rows(rows, sources, settings, client)
                 return rows
     return []
 
@@ -1786,6 +1792,231 @@ def _edgar_forms_filter(query: str) -> str:
     lowered = query.lower()
     forms = [form for hint, form in _EDGAR_FORM_HINTS if hint in lowered]
     return ",".join(dict.fromkeys(forms))
+
+
+# --- Form D per-row enrichment (docs/form-d-enrichment-spec.md) ---------------
+# FTS returns metadata only; the offering amounts, related persons, and paid
+# placement agents live in each filing's structured primary_doc.xml. We parse
+# that primary source ourselves rather than route to a secondary aggregator.
+
+_FORM_D_RELATED_PERSON_CAP = 6
+# Filers use placeholder tokens for the unused half of an entity's name (an entity
+# related person has a last/legal name but no first name) — strip them so a row
+# reads "Fairmount GP LLC", not "- Fairmount GP LLC".
+_FORM_D_NAME_PLACEHOLDERS = frozenset({"", "-", "--", "n/a", "na", "none", "."})
+
+
+def _form_d_doc_url(cik: str, adsh: str) -> str:
+    """primary_doc.xml URL — same Archives base as the index page, doc instead."""
+    cik_number = cik.lstrip("0")
+    accession = adsh.replace("-", "")
+    if not cik_number or not accession:
+        return ""
+    return (
+        f"https://www.sec.gov/Archives/edgar/data/{cik_number}/{accession}/primary_doc.xml"
+    )
+
+
+def _et_text(node: ET.Element | None, path: str) -> str:
+    """Stripped text at `path` under `node`, or "" when absent."""
+    if node is None:
+        return ""
+    found = node.find(path)
+    return found.text.strip() if found is not None and found.text else ""
+
+
+def _form_d_amount(raw: str) -> int | str | None:
+    """USD int when numeric; pass through the literal "Indefinite"; else None.
+
+    Form D amounts are open-ended for many pooled funds (totalOfferingAmount =
+    "Indefinite"), and "0" is a real "yet to sell" value distinct from missing —
+    so this never blindly int()s and never collapses 0 into None.
+    """
+    if not raw:
+        return None
+    if raw.strip().lower() == "indefinite":
+        return "Indefinite"
+    cleaned = raw.replace(",", "").replace("$", "").strip()
+    try:
+        return int(float(cleaned))
+    except ValueError:
+        return None
+
+
+def _form_d_related_persons(root: ET.Element) -> str:
+    """GPs / executive officers / directors / promoters, "Name (roles)"-joined."""
+    container = root.find("relatedPersonsList")
+    if container is None:
+        return ""
+    people: list[str] = []
+    for info in container.findall("relatedPersonInfo")[:_FORM_D_RELATED_PERSON_CAP]:
+        first = _et_text(info, "relatedPersonName/firstName")
+        last = _et_text(info, "relatedPersonName/lastName")
+        parts = [
+            part
+            for part in (first, last)
+            if part and part.lower() not in _FORM_D_NAME_PLACEHOLDERS
+        ]
+        name = " ".join(parts)
+        if not name:
+            continue
+        rels = [
+            rel.text.strip()
+            for rel in info.findall("relatedPersonRelationshipList/relationship")
+            if rel is not None and rel.text and rel.text.strip()
+        ]
+        people.append(f"{name} ({', '.join(rels)})" if rels else name)
+    return "; ".join(people)
+
+
+def _form_d_placement_agents(offering: ET.Element) -> str:
+    """Paid sales-compensation recipients — placement agents / broker-dealers."""
+    container = offering.find("salesCompensationList")
+    if container is None:
+        return ""
+    agents: list[str] = []
+    for recipient in container.findall("recipient"):
+        name = _et_text(recipient, "recipientName")
+        if not name or name.lower() == "none":
+            continue
+        crd = _et_text(recipient, "recipientCRDNumber")
+        if crd and crd.lower() != "none":
+            agents.append(f"{name} (CRD {crd})")
+        else:
+            agents.append(name)
+    return "; ".join(agents)
+
+
+def _parse_form_d(xml_text: str) -> dict[str, Any]:
+    """Map a Form D primary_doc.xml to enrichment fields. Pure, never raises.
+
+    Only keys with meaningful values are returned, so a merge never clobbers an
+    existing field with an empty string. Field paths verified against a live
+    filing, 2026-06-22 (docs/form-d-enrichment-spec.md §3).
+    """
+    if not xml_text or not xml_text.strip():
+        return {}
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return {}
+
+    details: dict[str, Any] = {}
+    offering = root.find("offeringData")
+    if offering is not None:
+        raised = _form_d_amount(_et_text(offering, "offeringSalesAmounts/totalAmountSold"))
+        if raised is not None:
+            details["amount_raised"] = raised
+        total = _form_d_amount(_et_text(offering, "offeringSalesAmounts/totalOfferingAmount"))
+        if total is not None:
+            details["total_offering"] = total
+        remaining = _form_d_amount(_et_text(offering, "offeringSalesAmounts/totalRemaining"))
+        if remaining is not None:
+            details["total_remaining"] = remaining
+        minimum = _form_d_amount(_et_text(offering, "minimumInvestmentAccepted"))
+        if minimum is not None:
+            details["min_investment"] = minimum
+        is_amend = _et_text(offering, "typeOfFiling/newOrAmendment/isAmendment").lower()
+        if is_amend:
+            details["new_or_amended"] = "amended" if is_amend == "true" else "new"
+        industry = _et_text(offering, "industryGroup/industryGroupType")
+        if industry:
+            details["industry"] = industry
+        investors = _et_text(offering, "investors/totalNumberAlreadyInvested")
+        if investors.isdigit():
+            details["investor_count"] = int(investors)
+        agents = _form_d_placement_agents(offering)
+        if agents:
+            details["placement_agents"] = agents
+
+    persons = _form_d_related_persons(root)
+    if persons:
+        details["related_persons"] = persons
+    return details
+
+
+def _merge_form_d_details(row: ResultRow, details: dict[str, Any]) -> None:
+    """Fold parsed details onto a row and surface the raise in its summary."""
+    row.fields.update(details)
+    raised = details.get("amount_raised")
+    if raised == 0:
+        addition = "yet to sell"
+    elif isinstance(raised, int):
+        addition = f"raised ${raised:,}"
+    else:
+        return
+    summary = str(row.fields.get("summary") or "")
+    row.fields["summary"] = f"{summary}; {addition}" if summary else addition
+
+
+async def _edgar_doc_fetch(
+    client: httpx.AsyncClient, url: str, settings: Settings
+) -> str:
+    """Fetch one primary_doc.xml. Best-effort: returns "" instead of raising."""
+    for attempt in range(2):
+        try:
+            response = await client.get(
+                url, headers={"User-Agent": settings.ct_search_edgar_user_agent}
+            )
+            response.raise_for_status()
+            return response.text
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code < 500:
+                return ""  # 403 / 404 — give up quietly, keep the metadata row
+            await asyncio.sleep(0.3 * (attempt + 1))
+        except httpx.HTTPError:
+            await asyncio.sleep(0.3 * (attempt + 1))
+    return ""
+
+
+async def _enrich_form_d_rows(
+    rows: list[ResultRow],
+    sources: list[dict[str, Any]],
+    settings: Settings,
+    client: httpx.AsyncClient,
+) -> list[ResultRow]:
+    """Enrich Form D rows in place from their primary_doc.xml.
+
+    Best-effort and non-blocking: only Form D rows are fetched, under a
+    concurrency cap that stays within SEC fair-access limits, and any per-row
+    fetch/parse failure leaves that row at its metadata baseline.
+    """
+    targets: list[ResultRow] = []
+    urls: list[str] = []
+    for row, source in zip(rows, sources, strict=True):
+        form = str(source.get("form") or source.get("file_type") or "")
+        if not form.upper().startswith("D"):
+            continue
+        ciks = [str(cik) for cik in source.get("ciks") or []]
+        url = _form_d_doc_url(ciks[0] if ciks else "", str(source.get("adsh") or ""))
+        if url:
+            targets.append(row)
+            urls.append(url)
+    if not targets:
+        return rows
+
+    semaphore = asyncio.Semaphore(max(1, settings.ct_search_edgar_enrich_concurrency))
+
+    async def _fetch(url: str) -> str:
+        async with semaphore:
+            return await _edgar_doc_fetch(client, url, settings)
+
+    documents = await asyncio.gather(
+        *(_fetch(url) for url in urls), return_exceptions=True
+    )
+
+    failed = 0
+    for row, document in zip(targets, documents, strict=True):
+        if isinstance(document, BaseException) or not document:
+            failed += 1
+            continue
+        details = _parse_form_d(document)
+        if details:
+            _merge_form_d_details(row, details)
+        else:
+            failed += 1
+    logfire.info("edgar_enrich", attempted=len(targets), failed=failed)
+    return rows
 
 
 async def _parallel_task_enrichment(

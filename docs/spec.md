@@ -151,6 +151,12 @@ Commits `c048a76`, `2209b95`, `54b8a52`, `7ddeaf9`, `64d4035`.
   brief→FTS query cleaning with a relaxation ladder, form filters (D, 13F,
   8-K, 10-K, 10-Q, S-1, SC 13D), freshness → date-range mapping, and the R2
   specialist gate.
+  - **Form D per-row enrichment**: Form D rows are enriched from each filing's
+    `primary_doc.xml` (best-effort, bounded by `max_results`, under a fair-access
+    concurrency cap) with `amount_raised` / `total_offering` / `new_or_amended` /
+    `industry` / `min_investment` / `investor_count` / `related_persons` /
+    `placement_agents` — the "who is raising, how much" signal FTS metadata omits.
+    Spec: [form-d-enrichment-spec.md](form-d-enrichment-spec.md).
 - **Extraction route**: URL-bearing briefs route `known_url` to Tavily Extract /
   Exa contents and return cited page-content rows.
 - **Deep-research escalation**: Perplexity sonar → sonar-pro on deep-research

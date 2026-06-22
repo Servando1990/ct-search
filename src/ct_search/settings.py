@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     # SEC EDGAR full-text search is keyless but requires an identifying
     # User-Agent per SEC fair-access policy.
     ct_search_edgar_user_agent: str = "EdnaSearch/0.1 (servando@controlthrive.com)"
+    # Per-row Form D enrichment — parse each filing's primary_doc.xml for offering
+    # amounts, related persons, and placement agents (docs/form-d-enrichment-spec.md).
+    # Best-effort and bounded by max_results; set False to restore metadata-only rows.
+    ct_search_edgar_enrich_form_d: bool = True
+    # Parallel primary_doc.xml fetches — kept well under SEC's 10 req/s ceiling.
+    ct_search_edgar_enrich_concurrency: int = 5
     # Phase 4 — entity resolution registry anchor (SEC company_tickers.json,
     # keyless). Set to 0 to keep resolution fully offline.
     ct_search_entity_registry: bool = True
