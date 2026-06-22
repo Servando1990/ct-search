@@ -53,7 +53,7 @@ logfire.instrument_fastapi(app, capture_headers=False)
 logfire.instrument_httpx()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://127.0.0.1:3000", "http://localhost:3000"],
+    allow_origins=get_settings().allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

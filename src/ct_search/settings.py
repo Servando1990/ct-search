@@ -38,8 +38,21 @@ class Settings(BaseSettings):
     # pre-run cost surfacing and the budget cap.
     ct_search_judge_model: str = "claude-opus-4-8"
     ct_search_judge_cost_per_criterion_usd: float = 0.0066
+    # Browser origins allowed to call the API directly (CORS), comma-separated.
+    # Local dev origins are always allowed. In production the frontend usually
+    # reaches the API through a same-origin proxy, so CORS is moot — but set this
+    # to the deployed frontend URL(s) when the browser calls the API directly,
+    # e.g. CT_SEARCH_ALLOWED_ORIGINS=https://search.yoursite.com,https://app.vercel.app
+    ct_search_allowed_origins: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    @property
+    def allowed_origins(self) -> list[str]:
+        """Local dev origins plus any configured for the deployed frontend."""
+        local = ["http://127.0.0.1:3000", "http://localhost:3000"]
+        extra = [o.strip() for o in self.ct_search_allowed_origins.split(",") if o.strip()]
+        return [*local, *extra]
 
 
 @lru_cache
