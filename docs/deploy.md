@@ -20,22 +20,22 @@ the intent parser falls back to keyword heuristics without `ANTHROPIC_API_KEY`.
 
 ## 1. Backend → Modal
 
-Prereqs: `pip install modal` and `modal token new` (once).
+Prereqs (once): `uv tool install modal` (or `pip install modal`), then
+`modal token new`.
 
-**a. (Optional) create the config secret.** Needed to set the frontend origin
-for direct browser calls and to enable live providers. Demo mode works without
-it.
+**a. Deploy.** Demo mode needs no secret:
+
+```bash
+modal deploy modal_app.py
+```
+
+**b. (Later) go live or set a custom origin.** Create the secret and flip
+`USE_SECRET = True` in `modal_app.py`, then redeploy:
 
 ```bash
 modal secret create edna-search-secrets \
     CT_SEARCH_ALLOWED_ORIGINS=https://YOUR-FRONTEND.vercel.app
-# add ANTHROPIC_API_KEY=... PARALLEL_API_KEY=... etc. to go live
-```
-
-**b. Deploy.**
-
-```bash
-modal deploy modal_app.py
+# add ANTHROPIC_API_KEY=... PARALLEL_API_KEY=... etc. to enable live venues
 ```
 
 Modal prints a public URL like

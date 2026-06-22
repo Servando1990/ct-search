@@ -44,13 +44,14 @@ image = (
 
 app = modal.App("edna-search")
 
-# Deploy-specific config + optional provider keys. Create with, e.g.:
+# Demo mode needs no secret at all (EDGAR is keyless; everything else returns
+# demo rows). To set the frontend origin for direct browser calls or to enable
+# live providers, create the secret and flip USE_SECRET to True:
 #   modal secret create edna-search-secrets \
-#       CT_SEARCH_ALLOWED_ORIGINS=https://your-frontend.vercel.app
-# Add ANTHROPIC_API_KEY / PARALLEL_API_KEY / ... here to go live; leave them out
-# to run in free demo mode. required=False lets the first deploy succeed before
-# the secret exists.
-secrets = [modal.Secret.from_name("edna-search-secrets", required=False)]
+#       CT_SEARCH_ALLOWED_ORIGINS=https://your-frontend.vercel.app \
+#       ANTHROPIC_API_KEY=... PARALLEL_API_KEY=...
+USE_SECRET = False
+secrets = [modal.Secret.from_name("edna-search-secrets")] if USE_SECRET else []
 
 
 @app.function(
